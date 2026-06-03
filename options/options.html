@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FireLoad Options</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <main class="options-shell">
+    <header class="header">
+      <div>
+        <h1>FireLoad</h1>
+        <p>Speculative loading controls for Firefox.</p>
+      </div>
+      <label class="switch-line">
+        <input id="enabled" type="checkbox">
+        <span>Enabled</span>
+      </label>
+    </header>
+
+    <section class="panel">
+      <h2>Mode</h2>
+      <div class="mode-row" aria-label="Mode">
+        <button type="button" data-mode="efficiency">Efficiency</button>
+        <button type="button" data-mode="balanced">Balanced</button>
+        <button type="button" data-mode="blazing">Blazing Fast</button>
+      </div>
+      <div class="mode-table" aria-label="Mode budgets">
+        <div><strong>Efficiency</strong><span>Hover/focus document prefetching, tight budget, 1 in flight.</span></div>
+        <div><strong>Balanced</strong><span>Visible links and intent, cautious cross-site prefetch, 2 in flight.</span></div>
+        <div><strong>Blazing Fast</strong><span>Wide viewport prediction, cross-site documents, 6 in flight.</span></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Guardrails</h2>
+      <label class="check-line">
+        <input id="respectSaveData" type="checkbox">
+        <span>Respect Save-Data and slow-network signals</span>
+      </label>
+      <label class="check-line">
+        <input id="respectNoPrefetch" type="checkbox">
+        <span>Respect page-level prefetch opt-out</span>
+      </label>
+      <label class="check-line">
+        <input id="blockSensitiveUrls" type="checkbox">
+        <span>Skip sensitive paths such as checkout, logout, payment, and delete</span>
+      </label>
+    </section>
+
+    <section class="panel">
+      <h2>Blocked Hosts</h2>
+      <textarea id="blockedHosts" spellcheck="false" rows="7" placeholder="example.com&#10;*.internal.example"></textarea>
+    </section>
+
+    <footer>
+      <button id="saveButton" type="button">Save</button>
+      <span id="saveState" role="status"></span>
+    </footer>
+  </main>
+
+  <script src="../src/shared.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FireLoad</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main class="popup-shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div class="brand-copy">
+          <h1>FireLoad</h1>
+          <p id="statusText">Loading</p>
+        </div>
+      </div>
+      <label class="switch" title="Enable FireLoad">
+        <input id="enabledToggle" type="checkbox">
+        <span class="switch-track"></span>
+      </label>
+    </header>
+
+    <section class="mode-group" aria-label="Mode">
+      <button type="button" class="mode-button" data-mode="efficiency">
+        <span class="mode-glyph efficiency" aria-hidden="true"></span>
+        <span>Efficiency</span>
+      </button>
+      <button type="button" class="mode-button" data-mode="balanced">
+        <span class="mode-glyph balanced" aria-hidden="true"></span>
+        <span>Balanced</span>
+      </button>
+      <button type="button" class="mode-button" data-mode="blazing">
+        <span class="mode-glyph blazing" aria-hidden="true"></span>
+        <span>Blazing</span>
+      </button>
+    </section>
+
+    <section class="stats-grid" aria-label="Page activity">
+      <div>
+        <span>Page</span>
+        <strong id="pageStatus">Unavailable</strong>
+      </div>
+      <div>
+        <span>Prefetched</span>
+        <strong id="prefetchedCount">0</strong>
+      </div>
+      <div>
+        <span>Origins</span>
+        <strong id="originCount">0</strong>
+      </div>
+      <div>
+        <span>Queue</span>
+        <strong id="queueCount">0</strong>
+      </div>
+      <div>
+        <span>DNS</span>
+        <strong id="dnsCount">0</strong>
+      </div>
+      <div>
+        <span>Connect</span>
+        <strong id="connectCount">0</strong>
+      </div>
+      <div>
+        <span>Skipped</span>
+        <strong id="skippedCount">0</strong>
+      </div>
+      <div>
+        <span>Last</span>
+        <strong id="lastReason">startup</strong>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <button id="optionsButton" type="button" class="plain-button">Options</button>
+      <span id="saveState" role="status"></span>
+    </footer>
+  </main>
+
+  <script src="../src/shared.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

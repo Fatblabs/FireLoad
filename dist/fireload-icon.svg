@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="FireLoad">
+  <rect x="8" y="8" width="80" height="80" rx="16" fill="#f6f5f0"/>
+  <rect x="14" y="14" width="68" height="68" rx="10" fill="#ffd426"/>
+  <path d="M55 14h17c5.5 0 10 4.5 10 10v48c0 5.5-4.5 10-10 10H55V14z" fill="#e8523a"/>
+  <path d="M19 61c17-4 25-16 28-36 12 12 20 23 20 35 0 14-11 22-24 22-12 0-24-7-24-21z" fill="#242424"/>
+  <path d="M35 68c9-3 13-9 15-20 7 7 10 13 10 20 0 8-6 13-13 13s-12-5-12-13z" fill="#ffffff"/>
+</svg>
