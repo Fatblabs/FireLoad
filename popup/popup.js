@@ -23,29 +23,54 @@
     }
   }
 
+  function normalizeSettingsResponse(value) {
+    if (!value || typeof value !== "object") throw new Error("Invalid settings response.");
+    return shared.normalizeSettings(value);
+  }
+
   function getSettings() {
-    return api.runtime.sendMessage({ type: shared.MESSAGE.GET_SETTINGS }).then(shared.normalizeSettings);
+    return api.runtime.sendMessage({ type: shared.MESSAGE.GET_SETTINGS }).then(normalizeSettingsResponse);
   }
 
   function saveSettings(patch) {
     return api.runtime.sendMessage({ type: shared.MESSAGE.SAVE_SETTINGS, patch: patch }).then(function (next) {
-      settings = shared.normalizeSettings(next);
+      settings = normalizeSettingsResponse(next);
       renderSettings();
       setSaveState("Saved");
-      window.setTimeout(refreshSummary, 120);
+      syncPolling();
+    }).catch(function () {
+      renderSettings();
+      setSaveState("Not saved");
     });
   }
 
   function renderSettings() {
     var config = shared.modeConfig(settings.mode);
     elements.enabledToggle.checked = settings.enabled;
+    elements.liveStatsToggle.checked = settings.liveCacheTracking;
+    elements.refreshButton.disabled = !settings.liveCacheTracking;
     elements.statusText.textContent = settings.enabled ? config.label : "Disabled";
     document.querySelectorAll(".mode-button").forEach(function (button) {
       button.setAttribute("aria-pressed", String(button.dataset.mode === settings.mode));
     });
   }
 
+  function renderTrackingOff() {
+    elements.pageStatus.textContent = "Live off";
+    elements.prefetchedCount.textContent = "0";
+    elements.originCount.textContent = "0";
+    elements.queueCount.textContent = "0";
+    elements.dnsCount.textContent = "0";
+    elements.connectCount.textContent = "0";
+    elements.skippedCount.textContent = "0";
+    elements.lastReason.textContent = "off";
+  }
+
   function renderSummary(summary) {
+    if (summary && summary.tracking === false) {
+      renderTrackingOff();
+      return;
+    }
     if (!summary) {
       elements.pageStatus.textContent = "Unavailable";
       elements.prefetchedCount.textContent = "0";
@@ -68,6 +93,10 @@
   }
 
   function refreshSummary() {
+    if (!settings.liveCacheTracking) {
+      renderTrackingOff();
+      return Promise.resolve();
+    }
     if (refreshInFlight) return Promise.resolve();
     refreshInFlight = true;
     return api.tabs.query({ active: true, currentWindow: true }).then(function (tabs) {
@@ -81,6 +110,7 @@
   }
 
   function startPolling() {
+    if (!settings.liveCacheTracking) return;
     if (pollTimer) return;
     pollTimer = window.setInterval(refreshSummary, 350);
   }
@@ -89,6 +119,16 @@
     if (!pollTimer) return;
     window.clearInterval(pollTimer);
     pollTimer = 0;
+  }
+
+  function syncPolling() {
+    if (settings.liveCacheTracking) {
+      startPolling();
+      window.setTimeout(refreshSummary, 120);
+    } else {
+      stopPolling();
+      renderTrackingOff();
+    }
   }
 
   function bindEvents() {
@@ -102,6 +142,14 @@
       });
     });
 
+    elements.liveStatsToggle.addEventListener("change", function () {
+      saveSettings({ liveCacheTracking: elements.liveStatsToggle.checked });
+    });
+
+    elements.refreshButton.addEventListener("click", function () {
+      refreshSummary();
+    });
+
     elements.optionsButton.addEventListener("click", function () {
       api.runtime.openOptionsPage();
     });
@@ -109,6 +157,7 @@
 
   function init() {
     elements.enabledToggle = qs("#enabledToggle");
+    elements.liveStatsToggle = qs("#liveStatsToggle");
     elements.statusText = qs("#statusText");
     elements.pageStatus = qs("#pageStatus");
     elements.prefetchedCount = qs("#prefetchedCount");
@@ -118,6 +167,7 @@
     elements.connectCount = qs("#connectCount");
     elements.skippedCount = qs("#skippedCount");
     elements.lastReason = qs("#lastReason");
+    elements.refreshButton = qs("#refreshButton");
     elements.optionsButton = qs("#optionsButton");
     elements.saveState = qs("#saveState");
 
@@ -125,13 +175,10 @@
     getSettings().then(function (loaded) {
       settings = loaded;
       renderSettings();
-      return refreshSummary();
-    }).then(function () {
-      startPolling();
+      syncPolling();
     }).catch(function () {
       renderSettings();
-      renderSummary(null);
-      startPolling();
+      renderTrackingOff();
     });
   }
 

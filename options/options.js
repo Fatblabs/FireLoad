@@ -12,15 +12,23 @@
     return document.querySelector(selector);
   }
 
+  function normalizeSettingsResponse(value) {
+    if (!value || typeof value !== "object") throw new Error("Invalid settings response.");
+    return shared.normalizeSettings(value);
+  }
+
   function getSettings() {
-    return api.runtime.sendMessage({ type: shared.MESSAGE.GET_SETTINGS }).then(shared.normalizeSettings);
+    return api.runtime.sendMessage({ type: shared.MESSAGE.GET_SETTINGS }).then(normalizeSettingsResponse);
   }
 
   function saveSettings(patch) {
     return api.runtime.sendMessage({ type: shared.MESSAGE.SAVE_SETTINGS, patch: patch }).then(function (next) {
-      settings = shared.normalizeSettings(next);
+      settings = normalizeSettingsResponse(next);
       render();
       showSaved("Saved");
+    }).catch(function () {
+      render();
+      showSaved("Not saved");
     });
   }
 
@@ -40,6 +48,7 @@
     return {
       enabled: fields.enabled.checked,
       mode: selectedMode(),
+      liveCacheTracking: fields.liveCacheTracking.checked,
       respectSaveData: fields.respectSaveData.checked,
       respectNoPrefetch: fields.respectNoPrefetch.checked,
       blockSensitiveUrls: fields.blockSensitiveUrls.checked,
@@ -51,6 +60,7 @@
 
   function render() {
     fields.enabled.checked = settings.enabled;
+    fields.liveCacheTracking.checked = settings.liveCacheTracking;
     fields.respectSaveData.checked = settings.respectSaveData;
     fields.respectNoPrefetch.checked = settings.respectNoPrefetch;
     fields.blockSensitiveUrls.checked = settings.blockSensitiveUrls;
@@ -71,7 +81,7 @@
       });
     });
 
-    [fields.enabled, fields.respectSaveData, fields.respectNoPrefetch, fields.blockSensitiveUrls].forEach(function (field) {
+    [fields.enabled, fields.liveCacheTracking, fields.respectSaveData, fields.respectNoPrefetch, fields.blockSensitiveUrls].forEach(function (field) {
       field.addEventListener("change", function () {
         saveSettings(collect());
       });
@@ -84,6 +94,7 @@
 
   function init() {
     fields.enabled = qs("#enabled");
+    fields.liveCacheTracking = qs("#liveCacheTracking");
     fields.respectSaveData = qs("#respectSaveData");
     fields.respectNoPrefetch = qs("#respectNoPrefetch");
     fields.blockSensitiveUrls = qs("#blockSensitiveUrls");

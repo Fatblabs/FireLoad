@@ -9,9 +9,12 @@
 <body>
   <main class="options-shell">
     <header class="header">
-      <div>
-        <h1>FireLoad</h1>
-        <p>Speculative loading controls for Firefox.</p>
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div>
+          <p class="eyebrow">FireLoad baseline</p>
+          <h1>FireLoad</h1>
+        </div>
       </div>
       <label class="switch-line">
         <input id="enabled" type="checkbox">
@@ -20,37 +23,58 @@
     </header>
 
     <section class="panel">
-      <h2>Mode</h2>
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">Pace</p>
+          <h2>Mode</h2>
+        </div>
+      </div>
       <div class="mode-row" aria-label="Mode">
         <button type="button" data-mode="efficiency">Efficiency</button>
         <button type="button" data-mode="balanced">Balanced</button>
         <button type="button" data-mode="blazing">Blazing Fast</button>
       </div>
       <div class="mode-table" aria-label="Mode budgets">
-        <div><strong>Efficiency</strong><span>Hover/focus document prefetching, tight budget, 1 in flight.</span></div>
-        <div><strong>Balanced</strong><span>Visible links and intent, cautious cross-site prefetch, 2 in flight.</span></div>
-        <div><strong>Blazing Fast</strong><span>Wide viewport prediction, cross-site documents, 6 in flight.</span></div>
+        <div><strong>Efficiency</strong><span>1 in flight</span></div>
+        <div><strong>Balanced</strong><span>2 in flight</span></div>
+        <div><strong>Blazing Fast</strong><span>6 in flight</span></div>
       </div>
     </section>
 
     <section class="panel">
-      <h2>Guardrails</h2>
-      <label class="check-line">
-        <input id="respectSaveData" type="checkbox">
-        <span>Respect Save-Data and slow-network signals</span>
-      </label>
-      <label class="check-line">
-        <input id="respectNoPrefetch" type="checkbox">
-        <span>Respect page-level prefetch opt-out</span>
-      </label>
-      <label class="check-line">
-        <input id="blockSensitiveUrls" type="checkbox">
-        <span>Skip sensitive paths such as checkout, logout, payment, and delete</span>
-      </label>
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">Guardrails</p>
+          <h2>Limits</h2>
+        </div>
+      </div>
+      <div class="setting-list">
+        <label class="check-line">
+          <input id="respectSaveData" type="checkbox">
+          <span>Respect Save-Data</span>
+        </label>
+        <label class="check-line">
+          <input id="respectNoPrefetch" type="checkbox">
+          <span>Respect page opt-out</span>
+        </label>
+        <label class="check-line">
+          <input id="blockSensitiveUrls" type="checkbox">
+          <span>Skip sensitive paths</span>
+        </label>
+        <label class="check-line">
+          <input id="liveCacheTracking" type="checkbox">
+          <span>Live popup stats</span>
+        </label>
+      </div>
     </section>
 
     <section class="panel">
-      <h2>Blocked Hosts</h2>
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">Boundaries</p>
+          <h2>Blocked Hosts</h2>
+        </div>
+      </div>
       <textarea id="blockedHosts" spellcheck="false" rows="7" placeholder="example.com&#10;*.internal.example"></textarea>
     </section>
 

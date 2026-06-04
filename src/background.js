@@ -5,6 +5,7 @@
   var shared = this.FireLoadShared;
   if (!api || !shared) return;
   var actionApi = api.action || api.browserAction;
+  var extensionBase = api.runtime.getURL("");
 
   function getSettings() {
     return api.storage.local.get(shared.STORAGE_KEY).then(function (result) {
@@ -14,7 +15,7 @@
 
   function saveSettings(patch) {
     return getSettings().then(function (settings) {
-      var next = shared.normalizeSettings(Object.assign({}, settings, patch || {}));
+      var next = shared.mergeSettings(settings, patch);
       return api.storage.local.set({ [shared.STORAGE_KEY]: next }).then(function () {
         updateBadge(next);
         return next;
@@ -56,8 +57,13 @@
     }
   });
 
-  api.runtime.onMessage.addListener(function (message) {
-    if (!message || !message.type) return undefined;
+  api.runtime.onMessage.addListener(function (message, sender) {
+    if (!shared.isAllowedExtensionMessage(message, [shared.MESSAGE.GET_SETTINGS, shared.MESSAGE.SAVE_SETTINGS])) {
+      return undefined;
+    }
+    if (!shared.isSafeExtensionPageSender(sender, extensionBase, { popup: true, options: true })) {
+      return undefined;
+    }
     if (message.type === shared.MESSAGE.GET_SETTINGS) return getSettings();
     if (message.type === shared.MESSAGE.SAVE_SETTINGS) return saveSettings(message.patch);
     return undefined;

@@ -11,6 +11,7 @@
   var DEFAULT_SETTINGS = {
     enabled: true,
     mode: "balanced",
+    liveCacheTracking: false,
     respectSaveData: true,
     respectNoPrefetch: true,
     blockSensitiveUrls: true,
@@ -118,6 +119,7 @@
   var SENSITIVE_QUERY_KEY_RE = /^(?:access_token|auth|authenticity_token|code|csrf|key|nonce|pass|password|secret|session|sid|sig|signature|state|token)$/i;
   var SKIPPED_SCHEME_RE = /^(?:about|blob|chrome|data|file|ftp|javascript|mailto|moz-extension|sms|tel|view-source):/i;
   var REL_SKIP_RE = /\b(?:nofollow|sponsored|ugc)\b/i;
+  var HAS_OWN = Object.prototype.hasOwnProperty;
 
   function clone(value) {
     return JSON.parse(JSON.stringify(value));
@@ -135,18 +137,90 @@
       .replace(/\/.*$/, "");
   }
 
+  function readOwn(source, key) {
+    return source && HAS_OWN.call(source, key) ? source[key] : undefined;
+  }
+
   function normalizeSettings(raw) {
     var source = raw && typeof raw === "object" ? raw : {};
-    var settings = Object.assign({}, DEFAULT_SETTINGS, source);
-    settings.mode = MODE_CONFIGS[settings.mode] ? settings.mode : DEFAULT_SETTINGS.mode;
-    settings.enabled = settings.enabled !== false;
-    settings.respectSaveData = settings.respectSaveData !== false;
-    settings.respectNoPrefetch = settings.respectNoPrefetch !== false;
-    settings.blockSensitiveUrls = settings.blockSensitiveUrls !== false;
-    settings.blockedHosts = Array.isArray(settings.blockedHosts)
-      ? settings.blockedHosts.map(cleanHost).filter(Boolean)
-      : [];
+    var mode = readOwn(source, "mode");
+    var blockedHosts = readOwn(source, "blockedHosts");
+    var settings = {
+      enabled: readOwn(source, "enabled") !== false,
+      mode: MODE_CONFIGS[mode] ? mode : DEFAULT_SETTINGS.mode,
+      liveCacheTracking: readOwn(source, "liveCacheTracking") === true,
+      respectSaveData: readOwn(source, "respectSaveData") !== false,
+      respectNoPrefetch: readOwn(source, "respectNoPrefetch") !== false,
+      blockSensitiveUrls: readOwn(source, "blockSensitiveUrls") !== false,
+      blockedHosts: Array.isArray(blockedHosts)
+        ? blockedHosts.map(cleanHost).filter(Boolean)
+        : []
+    };
     return settings;
+  }
+
+  function classifyPage(href, settings) {
+    var normalized = normalizeSettings(settings);
+    var url = toUrl(href, href);
+
+    if (!url) return { ok: false, reason: "invalid page" };
+    if (url.protocol !== "http:" && url.protocol !== "https:") return { ok: false, reason: "protocol" };
+    if (isBlockedHost(url.hostname, normalized.blockedHosts)) return { ok: false, reason: "blocked host" };
+    if (normalized.blockSensitiveUrls && isSensitiveUrl(url)) {
+      return { ok: false, reason: "sensitive page" };
+    }
+    return { ok: true, reason: "active" };
+  }
+
+  function mergeSettings(settings, patch) {
+    var current = normalizeSettings(settings);
+    var source = patch && typeof patch === "object" ? patch : {};
+    var next = {
+      enabled: current.enabled,
+      mode: current.mode,
+      liveCacheTracking: current.liveCacheTracking,
+      respectSaveData: current.respectSaveData,
+      respectNoPrefetch: current.respectNoPrefetch,
+      blockSensitiveUrls: current.blockSensitiveUrls,
+      blockedHosts: current.blockedHosts.slice()
+    };
+
+    if (readOwn(source, "enabled") !== undefined) next.enabled = readOwn(source, "enabled") === true;
+    if (MODE_CONFIGS[readOwn(source, "mode")]) next.mode = readOwn(source, "mode");
+    if (readOwn(source, "liveCacheTracking") !== undefined) {
+      next.liveCacheTracking = readOwn(source, "liveCacheTracking") === true;
+    }
+    if (readOwn(source, "respectSaveData") !== undefined) {
+      next.respectSaveData = readOwn(source, "respectSaveData") === true;
+    }
+    if (readOwn(source, "respectNoPrefetch") !== undefined) {
+      next.respectNoPrefetch = readOwn(source, "respectNoPrefetch") === true;
+    }
+    if (readOwn(source, "blockSensitiveUrls") !== undefined) {
+      next.blockSensitiveUrls = readOwn(source, "blockSensitiveUrls") === true;
+    }
+    if (Array.isArray(readOwn(source, "blockedHosts"))) {
+      next.blockedHosts = readOwn(source, "blockedHosts").map(cleanHost).filter(Boolean);
+    }
+
+    return normalizeSettings(next);
+  }
+
+  function isSafeExtensionPageSender(sender, extensionBase, allowedPages) {
+    var pages = allowedPages || {};
+    if (!sender || !extensionBase || sender.id !== (global.browser && global.browser.runtime && global.browser.runtime.id)) {
+      return false;
+    }
+    if (!sender.url || typeof sender.url !== "string") return false;
+    if (pages.popup && sender.url.indexOf(extensionBase + "popup/") === 0) return true;
+    if (pages.options && sender.url.indexOf(extensionBase + "options/") === 0) return true;
+    return false;
+  }
+
+  function isAllowedExtensionMessage(message, allowedTypes) {
+    if (!message || typeof message !== "object") return false;
+    var type = readOwn(message, "type");
+    return typeof type === "string" && allowedTypes.indexOf(type) >= 0;
   }
 
   function isNetworkConstrained() {
@@ -223,6 +297,7 @@
     if (url.protocol !== "http:" && url.protocol !== "https:") return { ok: false, reason: "protocol" };
     if (url.username || url.password) return { ok: false, reason: "credentials" };
     if (href.length > 2048) return { ok: false, reason: "length" };
+    if (current.protocol === "https:" && url.protocol === "http:") return { ok: false, reason: "downgrade" };
     if (url.origin === current.origin && url.pathname === current.pathname && url.search === current.search) {
       return { ok: false, reason: "same-document" };
     }
@@ -294,8 +369,12 @@
     modeConfig: modeConfig,
     isNetworkConstrained: isNetworkConstrained,
     pageDisablesPrefetch: pageDisablesPrefetch,
+    classifyPage: classifyPage,
     classifyUrl: classifyUrl,
     classifyAnchor: classifyAnchor,
+    mergeSettings: mergeSettings,
+    isSafeExtensionPageSender: isSafeExtensionPageSender,
+    isAllowedExtensionMessage: isAllowedExtensionMessage,
     isVisibleAnchor: isVisibleAnchor,
     scoreAnchor: scoreAnchor,
     cacheKey: cacheKey

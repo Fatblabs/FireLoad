@@ -117,6 +117,10 @@ function createHarness(storedSettings = {}) {
       }
     },
     runtime: {
+      id: "fireload@test",
+      getURL(file = "") {
+        return `moz-extension://fireload-test/${file}`;
+      },
       onMessage: {
         addListener(listener) {
           runtimeListeners.push(listener);
@@ -179,7 +183,10 @@ function createHarness(storedSettings = {}) {
     },
     async summary() {
       assert.equal(runtimeListeners.length, 1);
-      return runtimeListeners[0]({ type: context.FireLoadShared.MESSAGE.GET_PAGE_SUMMARY });
+      return runtimeListeners[0](
+        { type: context.FireLoadShared.MESSAGE.GET_PAGE_SUMMARY },
+        { id: "fireload@test", url: "moz-extension://fireload-test/popup/popup.html" }
+      );
     }
   };
 }
@@ -249,7 +256,44 @@ await assertPrefetchesOn("keydown", { key: "Enter", metaKey: true });
   harness.document.dispatch("contextmenu", { target: anchor, button: 2 });
   assert.equal(harness.head.children.filter((child) => child.rel === "prefetch").length, 0);
   const summary = await harness.summary();
+  assert.equal(summary.tracking, false);
+  assert.equal(summary.skipped, 0);
+}
+
+{
+  const harness = createHarness({ enabled: true, mode: "blazing", liveCacheTracking: true });
+  const anchor = link("https://site.test/logout");
+  harness.anchors.push(anchor);
+  await harness.ready();
+  harness.document.dispatch("contextmenu", { target: anchor, button: 2 });
+  assert.equal(harness.head.children.filter((child) => child.rel === "prefetch").length, 0);
+  const summary = await harness.summary();
+  assert.equal(summary.tracking, true);
   assert.equal(summary.skipped, 1);
+}
+
+{
+  const harness = createHarness({ enabled: true, mode: "blazing" });
+  const anchor = link("https://site.test/next");
+  harness.anchors.push(anchor);
+  harness.context.location = new URL("https://site.test/checkout/payment");
+  await harness.ready();
+  harness.document.dispatch("contextmenu", { target: anchor, button: 2 });
+  assert.equal(harness.head.children.filter((child) => child.rel === "prefetch").length, 0);
+  const summary = await harness.summary();
+  assert.equal(summary.status, "sensitive page");
+}
+
+{
+  const harness = createHarness({ enabled: true, mode: "balanced" });
+  await harness.ready();
+  assert.equal(
+    harness.runtimeListeners[0](
+      { type: harness.context.FireLoadShared.MESSAGE.GET_PAGE_SUMMARY },
+      { id: "fireload@test", url: "https://site.test/page" }
+    ),
+    undefined
+  );
 }
 
 console.log("Content intent tests passed.");

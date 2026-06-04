@@ -63,8 +63,26 @@ if (manifest.browser_action) {
   throw new Error("Manifest V3 must use action, not browser_action.");
 }
 
-if (!manifest.host_permissions?.includes("<all_urls>")) {
-  throw new Error("Expected <all_urls> in host_permissions for universal page support.");
+if (manifest.host_permissions && manifest.host_permissions.length > 0) {
+  throw new Error("Background host permissions should stay empty; content scripts provide page access.");
+}
+
+const contentMatches = manifest.content_scripts?.flatMap((entry) => entry.matches || []) || [];
+if (contentMatches.includes("<all_urls>")) {
+  throw new Error("Content scripts should use explicit http/https matches instead of <all_urls>.");
+}
+
+for (const expectedMatch of ["http://*/*", "https://*/*"]) {
+  if (!contentMatches.includes(expectedMatch)) {
+    throw new Error(`Missing content script match: ${expectedMatch}`);
+  }
+}
+
+const csp = manifest.content_security_policy?.extension_pages || "";
+for (const directive of ["script-src 'self'", "object-src 'none'", "connect-src 'none'"]) {
+  if (!csp.includes(directive)) {
+    throw new Error(`Missing CSP directive: ${directive}`);
+  }
 }
 
 for (const mode of ["efficiency", "balanced", "blazing"]) {

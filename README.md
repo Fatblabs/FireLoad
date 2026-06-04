@@ -18,7 +18,24 @@ FireLoad borrows the practical parts of very fast catalog sites:
 - Prefetch likely HTML documents with `<link rel="prefetch" as="document">`.
 - Warm links before native new-tab and new-window flows by reacting to right-click context menus, middle-clicks, modifier clicks, and keyboard activation.
 - Use bounded queues so aggressive mode is fast without becoming unbounded.
+- Keep live popup activity tracking off by default; the popup does not poll tabs unless Live stats is enabled.
 - Skip downloads, static assets, same-document links, sensitive paths, and blocked hosts.
+- Skip prefetching from sensitive current pages and avoid HTTPS-to-HTTP downgrade prefetches.
+
+## Security Posture
+
+FireLoad is intentionally small and dependency free. It uses no remote code, no bundled third-party runtime libraries, no analytics endpoint, no `eval`, no `innerHTML`, no web-accessible resources, and no background host permissions.
+
+Security guardrails include:
+
+- Manifest access is limited to HTTP and HTTPS content-script matches. The background page has no broad host permission.
+- Extension pages use a restrictive CSP: local scripts/styles/images only, no extension-page network connections, no objects, no forms, and no framing.
+- Background settings messages are accepted only from FireLoad's own popup and options pages.
+- Content summary messages are accepted only from FireLoad's popup.
+- Settings are normalized by explicit allow-listed fields rather than object merging.
+- Sensitive paths and token-like query keys are skipped by default.
+- Current pages that look sensitive, such as checkout/payment/logout/token/session pages, disable FireLoad activity.
+- Links with credentials, non-HTTP(S) schemes, downloads, static assets, `nofollow`-style rel values, and HTTPS-to-HTTP downgrade targets are skipped.
 
 ## Load in Firefox
 
@@ -115,3 +132,5 @@ Speculative loading can increase bandwidth and may cause servers to see requests
 Firefox and sites may ignore, throttle, or block speculative hints. FireLoad improves the odds of a warm cache and warm connection, but it cannot override server cache headers, site CSP, login boundaries, or browser privacy protections.
 
 FireLoad does not collect analytics, send telemetry, or transmit data to a FireLoad service. It stores extension settings locally in Firefox. Its core function can still cause Firefox to make early requests to linked websites through browser-native prefetching.
+
+The toolbar popup's live activity counters are local and optional. They are disabled by default, and enabling them only makes the popup poll the active tab while the popup is open.

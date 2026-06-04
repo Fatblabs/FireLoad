@@ -12,6 +12,7 @@
   var mutationObserver = null;
   var mutationTimer = 0;
   var hoverTimers = new WeakMap();
+  var extensionBase = api.runtime.getURL("");
   var state = {
     queue: [],
     queued: new Set(),
@@ -53,9 +54,14 @@
 
   function isActive() {
     if (!settings.enabled) return false;
+    if (!shared.classifyPage(location.href, settings).ok) return false;
     if (settings.respectNoPrefetch && shared.pageDisablesPrefetch(document)) return false;
     if (document.visibilityState === "hidden") return false;
     return true;
+  }
+
+  function isTracking() {
+    return settings.liveCacheTracking === true;
   }
 
   function getAnchor(target) {
@@ -120,11 +126,11 @@
     var warmedSomething = false;
     if (config.dnsPrefetch) {
       warmedSomething = addHint("dns-prefetch", origin, reason) || warmedSomething;
-      if (warmedSomething) state.stats.dnsPrefetches += 1;
+      if (warmedSomething && isTracking()) state.stats.dnsPrefetches += 1;
     }
     if (config.preconnect && (shared.INTENT_REASONS[reason] || config.preconnectVisible)) {
       var didPreconnect = addHint("preconnect", origin, reason);
-      if (didPreconnect) state.stats.preconnects += 1;
+      if (didPreconnect && isTracking()) state.stats.preconnects += 1;
       warmedSomething = didPreconnect || warmedSomething;
     }
     if (warmedSomething) state.warmedOrigins.add(url.origin);
@@ -160,8 +166,10 @@
 
       state.inFlight += 1;
       state.prefetched.add(job.key);
-      state.stats.documentPrefetches += 1;
-      state.stats.lastReason = job.reason;
+      if (isTracking()) {
+        state.stats.documentPrefetches += 1;
+        state.stats.lastReason = job.reason;
+      }
       insertDocumentPrefetch(job);
     }
   }
@@ -197,7 +205,7 @@
     if (!isActive()) return;
     var candidate = shared.classifyAnchor(anchor, location.href, settings);
     if (!candidate.ok) {
-      state.stats.skipped += 1;
+      if (isTracking()) state.stats.skipped += 1;
       return;
     }
 
@@ -224,18 +232,13 @@
   function onMouseOver(event) {
     var anchor = getAnchor(event.target);
     if (!anchor || !isActive()) return;
+    if (event.relatedTarget && anchor.contains(event.relatedTarget)) return;
     warmAnchor(anchor, "hover");
     clearHoverTimer(anchor);
     hoverTimers.set(anchor, window.setTimeout(function () {
       prefetchAnchor(anchor, "hover", true);
       hoverTimers.delete(anchor);
     }, config.hoverDelayMs));
-  }
-
-  function onMouseOut(event) {
-    var anchor = getAnchor(event.target);
-    if (!anchor) return;
-    if (event.relatedTarget && anchor.contains(event.relatedTarget)) return;
   }
 
   function onFocusIn(event) {
@@ -392,7 +395,9 @@
   }
 
   function pageStatus() {
+    var page = shared.classifyPage(location.href, settings);
     if (!settings.enabled) return "disabled";
+    if (!page.ok) return page.reason;
     if (settings.respectNoPrefetch && shared.pageDisablesPrefetch(document)) return "page opt-out";
     if (settings.respectSaveData && shared.isNetworkConstrained()) return "network saver";
     if (document.visibilityState === "hidden") return "hidden";
@@ -402,6 +407,7 @@
   function summary() {
     return {
       enabled: isActive(),
+      tracking: isTracking(),
       status: pageStatus(),
       configuredMode: settings.mode,
       activeMode: config.label,
@@ -418,7 +424,6 @@
   }
 
   document.addEventListener("mouseover", onMouseOver, true);
-  document.addEventListener("mouseout", onMouseOut, true);
   document.addEventListener("focusin", onFocusIn, true);
   document.addEventListener("touchstart", onTouchStart, { capture: true, passive: true });
   document.addEventListener("contextmenu", onContextMenu, true);
@@ -436,8 +441,11 @@
     }
   });
 
-  api.runtime.onMessage.addListener(function (message) {
-    if (message && message.type === shared.MESSAGE.GET_PAGE_SUMMARY) {
+  api.runtime.onMessage.addListener(function (message, sender) {
+    if (
+      shared.isAllowedExtensionMessage(message, [shared.MESSAGE.GET_PAGE_SUMMARY]) &&
+      shared.isSafeExtensionPageSender(sender, extensionBase, { popup: true })
+    ) {
       return Promise.resolve(summary());
     }
     return undefined;
