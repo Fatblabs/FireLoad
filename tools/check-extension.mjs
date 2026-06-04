@@ -28,10 +28,11 @@ Object.values(manifest.icons || {}).forEach(addFile);
 Object.values(manifest.action?.default_icon || {}).forEach(addFile);
 addFile(manifest.action?.default_popup);
 addFile(manifest.options_ui?.page);
+addFile("onboarding/onboarding.html");
 (manifest.background?.scripts || []).forEach(addFile);
 (manifest.content_scripts || []).forEach((entry) => (entry.js || []).forEach(addFile));
 
-for (const htmlFile of [manifest.action?.default_popup, manifest.options_ui?.page].filter(Boolean)) {
+for (const htmlFile of [manifest.action?.default_popup, manifest.options_ui?.page, "onboarding/onboarding.html"].filter(Boolean)) {
   addHtmlReferences(htmlFile);
 }
 
@@ -63,8 +64,23 @@ if (manifest.browser_action) {
   throw new Error("Manifest V3 must use action, not browser_action.");
 }
 
-if (manifest.host_permissions && manifest.host_permissions.length > 0) {
-  throw new Error("Background host permissions should stay empty; content scripts provide page access.");
+if (manifest.homepage_url?.includes("/local/")) {
+  throw new Error("homepage_url must not use a local placeholder value.");
+}
+
+if (manifest.browser_specific_settings?.gecko?.id?.includes("local.dev")) {
+  throw new Error("Gecko id must not use a local dev placeholder.");
+}
+
+const hostPermissions = manifest.host_permissions || [];
+if (hostPermissions.includes("<all_urls>")) {
+  throw new Error("Use explicit http/https host permissions instead of <all_urls>.");
+}
+
+for (const expectedPermission of ["http://*/*", "https://*/*"]) {
+  if (!hostPermissions.includes(expectedPermission)) {
+    throw new Error(`Missing host permission required for Firefox static content script injection: ${expectedPermission}`);
+  }
 }
 
 const contentMatches = manifest.content_scripts?.flatMap((entry) => entry.matches || []) || [];

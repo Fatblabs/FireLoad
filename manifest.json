@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "FireLoad",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Speculative page warming for Firefox: efficient, balanced, and blazing-fast preloading modes.",
-  "homepage_url": "https://github.com/local/fireload",
+  "homepage_url": "https://github.com/seannguyen/FireLoad",
   "icons": {
     "48": "icons/fireload.svg",
     "96": "icons/fireload.svg"
@@ -11,12 +11,16 @@
   "permissions": [
     "storage"
   ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
   "content_security_policy": {
     "extension_pages": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; object-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
   },
   "browser_specific_settings": {
     "gecko": {
-      "id": "fireload@local.dev",
+      "id": "fireload@seannguyen.github.io",
       "strict_min_version": "142.0",
       "data_collection_permissions": {
         "required": [

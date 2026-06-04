@@ -50,6 +50,7 @@ function createHarness(initialSettings = {}, behavior = {}) {
   const ids = [
     "enabled",
     "liveCacheTracking",
+    "allowCrossSiteDocumentPrefetch",
     "respectSaveData",
     "respectNoPrefetch",
     "blockSensitiveUrls",
@@ -129,6 +130,7 @@ function createHarness(initialSettings = {}, behavior = {}) {
     enabled: false,
     mode: "blazing",
     liveCacheTracking: true,
+    allowCrossSiteDocumentPrefetch: true,
     blockedHosts: ["example.com", "*.internal.test"]
   });
   harness.start();
@@ -136,6 +138,7 @@ function createHarness(initialSettings = {}, behavior = {}) {
 
   assert.equal(harness.elements.get("#enabled").checked, false);
   assert.equal(harness.elements.get("#liveCacheTracking").checked, true);
+  assert.equal(harness.elements.get("#allowCrossSiteDocumentPrefetch").checked, true);
   assert.equal(harness.elements.get("#blockedHosts").value, "example.com\n*.internal.test");
   assert.equal(harness.modeButtons.find((button) => button.dataset.mode === "blazing").getAttribute("aria-pressed"), "true");
 }
@@ -151,6 +154,20 @@ function createHarness(initialSettings = {}, behavior = {}) {
 
   assert.equal(harness.metrics.savedPatches.at(-1).mode, "efficiency");
   assert.equal(efficiency.getAttribute("aria-pressed"), "true");
+  assert.equal(harness.elements.get("#saveState").textContent, "Saved");
+}
+
+{
+  const harness = createHarness({ enabled: true, mode: "balanced" });
+  harness.start();
+  await settle();
+
+  const crossSite = harness.elements.get("#allowCrossSiteDocumentPrefetch");
+  crossSite.checked = true;
+  crossSite.dispatch("change");
+  await settle();
+
+  assert.equal(harness.metrics.savedPatches.at(-1).allowCrossSiteDocumentPrefetch, true);
   assert.equal(harness.elements.get("#saveState").textContent, "Saved");
 }
 

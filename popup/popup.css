@@ -60,7 +60,8 @@ input:focus-visible {
 
 .hero,
 .stats-grid,
-.activity-bar {
+.activity-bar,
+.privacy-note {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
@@ -239,6 +240,30 @@ h1 {
   padding: 9px 10px;
 }
 
+.privacy-note {
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  border-color: rgba(217, 119, 6, 0.38);
+  background: #fff8eb;
+}
+
+.privacy-note strong,
+.privacy-note span {
+  display: block;
+}
+
+.privacy-note strong {
+  color: #67420c;
+  font-size: 12px;
+}
+
+.privacy-note span {
+  color: #67420c;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .check-toggle {
   display: inline-flex;
   align-items: center;
@@ -349,6 +374,15 @@ h1 {
 
   .mode-button[aria-pressed="true"] {
     background: #14202d;
+  }
+
+  .privacy-note {
+    background: #251c0f;
+  }
+
+  .privacy-note strong,
+  .privacy-note span {
+    color: #f5d49a;
   }
 
   .plain-button:disabled {

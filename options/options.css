@@ -146,13 +146,26 @@ input[type="checkbox"] {
   accent-color: var(--accent);
 }
 
-.panel {
+.panel,
+.notice-panel {
   display: grid;
   gap: 16px;
   padding: 18px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
+}
+
+.notice-panel {
+  gap: 8px;
+  border-color: rgba(217, 119, 6, 0.38);
+  background: #fff8eb;
+}
+
+.notice-panel p {
+  margin: 0;
+  color: #67420c;
+  line-height: 1.45;
 }
 
 .panel-heading {
@@ -236,6 +249,10 @@ footer button {
 
 .check-line:last-child {
   padding-bottom: 0;
+}
+
+.warning-line {
+  color: #67420c;
 }
 
 .check-line span {
@@ -330,6 +347,15 @@ footer button:hover {
   .mode-row button[aria-pressed="true"],
   .mode-table div {
     background: #14202d;
+  }
+
+  .notice-panel {
+    background: #251c0f;
+  }
+
+  .notice-panel p,
+  .warning-line {
+    color: #f5d49a;
   }
 
   footer button {

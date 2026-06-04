@@ -12,6 +12,7 @@
     enabled: true,
     mode: "balanced",
     liveCacheTracking: false,
+    allowCrossSiteDocumentPrefetch: false,
     respectSaveData: true,
     respectNoPrefetch: true,
     blockSensitiveUrls: true,
@@ -149,6 +150,7 @@
       enabled: readOwn(source, "enabled") !== false,
       mode: MODE_CONFIGS[mode] ? mode : DEFAULT_SETTINGS.mode,
       liveCacheTracking: readOwn(source, "liveCacheTracking") === true,
+      allowCrossSiteDocumentPrefetch: readOwn(source, "allowCrossSiteDocumentPrefetch") === true,
       respectSaveData: readOwn(source, "respectSaveData") !== false,
       respectNoPrefetch: readOwn(source, "respectNoPrefetch") !== false,
       blockSensitiveUrls: readOwn(source, "blockSensitiveUrls") !== false,
@@ -179,6 +181,7 @@
       enabled: current.enabled,
       mode: current.mode,
       liveCacheTracking: current.liveCacheTracking,
+      allowCrossSiteDocumentPrefetch: current.allowCrossSiteDocumentPrefetch,
       respectSaveData: current.respectSaveData,
       respectNoPrefetch: current.respectNoPrefetch,
       blockSensitiveUrls: current.blockSensitiveUrls,
@@ -189,6 +192,9 @@
     if (MODE_CONFIGS[readOwn(source, "mode")]) next.mode = readOwn(source, "mode");
     if (readOwn(source, "liveCacheTracking") !== undefined) {
       next.liveCacheTracking = readOwn(source, "liveCacheTracking") === true;
+    }
+    if (readOwn(source, "allowCrossSiteDocumentPrefetch") !== undefined) {
+      next.allowCrossSiteDocumentPrefetch = readOwn(source, "allowCrossSiteDocumentPrefetch") === true;
     }
     if (readOwn(source, "respectSaveData") !== undefined) {
       next.respectSaveData = readOwn(source, "respectSaveData") === true;

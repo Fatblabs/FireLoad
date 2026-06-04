@@ -37,7 +37,7 @@
       <div class="mode-table" aria-label="Mode budgets">
         <div><strong>Efficiency</strong><span>1 in flight</span></div>
         <div><strong>Balanced</strong><span>2 in flight</span></div>
-        <div><strong>Blazing Fast</strong><span>6 in flight</span></div>
+        <div><strong>Blazing Fast</strong><span>6 in flight; cross-site documents require opt-in</span></div>
       </div>
     </section>
 
@@ -65,7 +65,16 @@
           <input id="liveCacheTracking" type="checkbox">
           <span>Live popup stats</span>
         </label>
+        <label class="check-line warning-line">
+          <input id="allowCrossSiteDocumentPrefetch" type="checkbox">
+          <span>Allow cross-site document prefetching</span>
+        </label>
       </div>
+    </section>
+
+    <section class="notice-panel">
+      <h2>Privacy and Bandwidth</h2>
+      <p>Prefetching can make Firefox contact linked sites before you click. Blazing Fast increases the chance of early requests. Cross-site document prefetching stays off until you enable it above.</p>
     </section>
 
     <section class="panel">

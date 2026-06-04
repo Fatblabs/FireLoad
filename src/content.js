@@ -139,6 +139,7 @@
   function allowsDocumentPrefetch(candidate, reason, force) {
     if (state.prefetched.size >= config.maxDocumentPrefetches) return false;
     if (candidate.sameOrigin) return true;
+    if (!settings.allowCrossSiteDocumentPrefetch) return false;
     if (force && shared.INTENT_REASONS[reason]) return true;
     if (force && config.crossOriginOnIntent) return true;
     if (config.crossOriginDocumentPrefetch) return true;

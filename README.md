@@ -5,8 +5,8 @@ FireLoad is a Firefox WebExtension that improves perceived navigation speed by w
 ## Modes
 
 - Efficiency: hover and focus document prefetching with tight budgets, 1 document in flight.
-- Balanced: visible-link prediction plus intent signals, cautious cross-site prefetching, 2 documents in flight.
-- Blazing Fast: broad viewport prediction, cross-site document prefetching, 6 documents in flight and larger queues.
+- Balanced: visible-link prediction plus intent signals, 2 documents in flight.
+- Blazing Fast: broader same-site viewport prediction, 6 documents in flight and larger queues. Cross-site document prefetching requires explicit opt-in.
 
 ## Strategy
 
@@ -21,14 +21,19 @@ FireLoad borrows the practical parts of very fast catalog sites:
 - Keep live popup activity tracking off by default; the popup does not poll tabs unless Live stats is enabled.
 - Skip downloads, static assets, same-document links, sensitive paths, and blocked hosts.
 - Skip prefetching from sensitive current pages and avoid HTTPS-to-HTTP downgrade prefetches.
+- Keep cross-site document prefetching off by default; it must be enabled explicitly in Options.
+
+## Privacy and Bandwidth
+
+Prefetching can make Firefox contact linked sites before you click. This is how browser-native speculative loading works: FireLoad may ask Firefox to resolve DNS, open a connection, or prefetch a likely document. Blazing Fast mode uses larger budgets and can increase the chance of early requests and bandwidth use. Cross-site document prefetching is disabled by default and must be explicitly enabled in Options.
 
 ## Security Posture
 
-FireLoad is intentionally small and dependency free. It uses no remote code, no bundled third-party runtime libraries, no analytics endpoint, no `eval`, no `innerHTML`, no web-accessible resources, and no background host permissions.
+FireLoad is intentionally small and dependency free. It uses no remote code, no bundled third-party runtime libraries, no analytics endpoint, no `eval`, no `innerHTML`, and no web-accessible resources.
 
 Security guardrails include:
 
-- Manifest access is limited to HTTP and HTTPS content-script matches. The background page has no broad host permission.
+- Manifest access is limited to explicit HTTP and HTTPS host permissions and content-script matches. FireLoad avoids `<all_urls>`.
 - Extension pages use a restrictive CSP: local scripts/styles/images only, no extension-page network connections, no objects, no forms, and no framing.
 - Background settings messages are accepted only from FireLoad's own popup and options pages.
 - Content summary messages are accepted only from FireLoad's popup.
@@ -87,16 +92,20 @@ manifest.json
 src/
 popup/
 options/
+onboarding/
 icons/
 README.md
 ```
 
-### Optional Lint
+### Release Gates
 
-Mozilla's web-ext linter can be run with:
+The release gates are also defined in `.github/workflows/release-gates.yml`:
 
 ```sh
+npm run check
+npm test
 npx --yes web-ext@10.3.0 lint --source-dir .
+npm run build
 ```
 
 ### Optional Source Archive
@@ -115,7 +124,7 @@ dist/fireload-source.zip
 
 ## Real Browser Prefetch Test
 
-The integration runner in `tools/test-firefox-prefetch.cjs` launches Firefox, installs the packaged extension, starts a local HTTP server, hovers a link, and verifies that the server receives a `sec-purpose: prefetch` request before navigation.
+The integration runner in `tools/test-firefox-prefetch.cjs` launches Firefox, installs the packaged extension, starts local HTTP servers, hovers a same-site link, verifies that the server receives a `sec-purpose: prefetch` request before navigation, verifies sensitive URLs are skipped, and verifies cross-site document prefetching is blocked by default.
 
 It expects Selenium and geckodriver to be available to Node. One clean way to run it without adding dependencies to this repo:
 
@@ -127,10 +136,12 @@ NODE_PATH="$TMP_AUTOMATION_DIR/node_modules" node tools/test-firefox-prefetch.cj
 
 ## Safety Notes
 
-Speculative loading can increase bandwidth and may cause servers to see requests before a user clicks. FireLoad keeps a side-effect guard on by default and skips paths containing terms such as checkout, logout, payment, delete, token, session, and unsubscribe. Blazing Fast mode is intentionally aggressive, so keep the blocked-host list current for private apps or fragile internal tools.
+Speculative loading can increase bandwidth and may cause servers to see requests before a user clicks. FireLoad keeps a side-effect guard on by default and skips paths containing terms such as checkout, logout, payment, delete, token, session, and unsubscribe. Blazing Fast mode is intentionally aggressive for same-site prediction, so keep the blocked-host list current for private apps or fragile internal tools.
 
 Firefox and sites may ignore, throttle, or block speculative hints. FireLoad improves the odds of a warm cache and warm connection, but it cannot override server cache headers, site CSP, login boundaries, or browser privacy protections.
 
 FireLoad does not collect analytics, send telemetry, or transmit data to a FireLoad service. It stores extension settings locally in Firefox. Its core function can still cause Firefox to make early requests to linked websites through browser-native prefetching.
 
 The toolbar popup's live activity counters are local and optional. They are disabled by default, and enabling them only makes the popup poll the active tab while the popup is open.
+
+AMO-facing privacy, permissions, security review, reviewer notes, and listing copy are in [amo/](amo/).

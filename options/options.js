@@ -49,6 +49,7 @@
       enabled: fields.enabled.checked,
       mode: selectedMode(),
       liveCacheTracking: fields.liveCacheTracking.checked,
+      allowCrossSiteDocumentPrefetch: fields.allowCrossSiteDocumentPrefetch.checked,
       respectSaveData: fields.respectSaveData.checked,
       respectNoPrefetch: fields.respectNoPrefetch.checked,
       blockSensitiveUrls: fields.blockSensitiveUrls.checked,
@@ -61,6 +62,7 @@
   function render() {
     fields.enabled.checked = settings.enabled;
     fields.liveCacheTracking.checked = settings.liveCacheTracking;
+    fields.allowCrossSiteDocumentPrefetch.checked = settings.allowCrossSiteDocumentPrefetch;
     fields.respectSaveData.checked = settings.respectSaveData;
     fields.respectNoPrefetch.checked = settings.respectNoPrefetch;
     fields.blockSensitiveUrls.checked = settings.blockSensitiveUrls;
@@ -81,7 +83,7 @@
       });
     });
 
-    [fields.enabled, fields.liveCacheTracking, fields.respectSaveData, fields.respectNoPrefetch, fields.blockSensitiveUrls].forEach(function (field) {
+    [fields.enabled, fields.liveCacheTracking, fields.allowCrossSiteDocumentPrefetch, fields.respectSaveData, fields.respectNoPrefetch, fields.blockSensitiveUrls].forEach(function (field) {
       field.addEventListener("change", function () {
         saveSettings(collect());
       });
@@ -95,6 +97,7 @@
   function init() {
     fields.enabled = qs("#enabled");
     fields.liveCacheTracking = qs("#liveCacheTracking");
+    fields.allowCrossSiteDocumentPrefetch = qs("#allowCrossSiteDocumentPrefetch");
     fields.respectSaveData = qs("#respectSaveData");
     fields.respectNoPrefetch = qs("#respectNoPrefetch");
     fields.blockSensitiveUrls = qs("#blockSensitiveUrls");

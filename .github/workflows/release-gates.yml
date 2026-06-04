@@ -1,0 +1,32 @@
+name: Release Gates
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  extension:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.16.0"
+
+      - name: Install system build tools
+        run: sudo apt-get update && sudo apt-get install -y zip
+
+      - name: Check extension structure
+        run: npm run check
+
+      - name: Run tests
+        run: npm test
+
+      - name: Lint with web-ext
+        run: npx --yes web-ext@10.3.0 lint --source-dir .
+
+      - name: Build XPI
+        run: npm run build

@@ -152,6 +152,7 @@ async function main() {
       .build();
 
     await driver.installAddon(xpiPath, true);
+    await driver.switchTo().newWindow("tab");
     await driver.get(baseUrl + "/");
     await sleep(1500);
 
@@ -225,15 +226,10 @@ async function main() {
         button: 2
       }));
     `, crossLink);
-    await waitFor(
-      () => countRequests(crossOrigin.requests, crossTargetPath) > crossBefore,
-      5000,
-      "context-menu prefetch request to cross-origin target"
-    );
+    await sleep(1400);
     hints = await injectedHints(driver);
     const crossRequests = findRequests(crossOrigin.requests, crossTargetPath);
-    const contextMenuRequest = crossRequests[crossRequests.length - 1];
-    assert.equal(contextMenuRequest.headers["sec-purpose"], "prefetch");
+    assert.equal(crossRequests.length, crossBefore);
 
     console.log(JSON.stringify({
       ok: true,
@@ -249,11 +245,7 @@ async function main() {
         secPurpose: hoverRequest.headers["sec-purpose"] || null,
         accept: hoverRequest.headers.accept || null
       },
-      contextMenuRequestHeaders: {
-        purpose: contextMenuRequest.headers.purpose || null,
-        secPurpose: contextMenuRequest.headers["sec-purpose"] || null,
-        accept: contextMenuRequest.headers.accept || null
-      },
+      crossSiteDocumentPrefetchDefault: "blocked",
       currentUrl
     }, null, 2));
   } finally {

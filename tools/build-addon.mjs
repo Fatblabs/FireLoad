@@ -18,6 +18,7 @@ const args = [
   "src",
   "popup",
   "options",
+  "onboarding",
   "icons",
   "README.md",
   "-x",

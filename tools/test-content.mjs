@@ -223,6 +223,18 @@ await assertPrefetchesOn("keydown", { key: "Enter", metaKey: true });
   harness.document.dispatch("mouseout", { target: anchor, relatedTarget: null });
   await new Promise((resolve) => setTimeout(resolve, 5));
   const prefetches = harness.head.children.filter((child) => child.rel === "prefetch" && child.as === "document");
+  assert.equal(prefetches.length, 0);
+}
+
+{
+  const harness = createHarness({ enabled: true, mode: "balanced", allowCrossSiteDocumentPrefetch: true });
+  const anchor = link("https://other.test/hovered");
+  harness.anchors.push(anchor);
+  await harness.ready();
+  harness.document.dispatch("mouseover", { target: anchor });
+  harness.document.dispatch("mouseout", { target: anchor, relatedTarget: null });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const prefetches = harness.head.children.filter((child) => child.rel === "prefetch" && child.as === "document");
   assert.equal(prefetches.length, 1);
   assert.equal(prefetches[0].href, "https://other.test/hovered");
   assert.equal(prefetches[0].dataset.fireload, "hover");
@@ -230,6 +242,16 @@ await assertPrefetchesOn("keydown", { key: "Enter", metaKey: true });
 
 {
   const harness = createHarness({ enabled: true, mode: "efficiency" });
+  const anchor = link("https://other.test/next");
+  harness.anchors.push(anchor);
+  await harness.ready();
+  harness.document.dispatch("contextmenu", { target: anchor, button: 2 });
+  const prefetches = harness.head.children.filter((child) => child.rel === "prefetch" && child.as === "document");
+  assert.equal(prefetches.length, 0);
+}
+
+{
+  const harness = createHarness({ enabled: true, mode: "efficiency", allowCrossSiteDocumentPrefetch: true });
   const anchor = link("https://other.test/next");
   harness.anchors.push(anchor);
   await harness.ready();

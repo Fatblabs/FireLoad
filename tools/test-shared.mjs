@@ -39,6 +39,8 @@ assert.equal(shared.normalizeSettings({ mode: "unknown" }).mode, "balanced");
 assert.equal(shared.normalizeSettings({ enabled: false }).enabled, false);
 assert.equal(shared.normalizeSettings({}).liveCacheTracking, false);
 assert.equal(shared.normalizeSettings({ liveCacheTracking: true }).liveCacheTracking, true);
+assert.equal(shared.normalizeSettings({}).allowCrossSiteDocumentPrefetch, false);
+assert.equal(shared.normalizeSettings({ allowCrossSiteDocumentPrefetch: true }).allowCrossSiteDocumentPrefetch, true);
 assert.equal(shared.normalizeSettings({ blockedHosts: [" HTTPS://Example.COM/path "] }).blockedHosts[0], "example.com");
 
 const normal = shared.classifyUrl("/products/screws/", base, {});
@@ -54,10 +56,11 @@ assert.equal({}.polluted, undefined);
 
 const merged = shared.mergeSettings(
   { enabled: true, mode: "balanced", blockedHosts: ["safe.test"] },
-  JSON.parse('{"__proto__":{"polluted":true},"mode":"blazing","enabled":false,"blockedHosts":["*.internal.test"]}')
+  JSON.parse('{"__proto__":{"polluted":true},"mode":"blazing","enabled":false,"allowCrossSiteDocumentPrefetch":true,"blockedHosts":["*.internal.test"]}')
 );
 assert.equal(merged.enabled, false);
 assert.equal(merged.mode, "blazing");
+assert.equal(merged.allowCrossSiteDocumentPrefetch, true);
 assert.equal(merged.blockedHosts.length, 1);
 assert.equal(merged.blockedHosts[0], "*.internal.test");
 assert.equal({}.polluted, undefined);

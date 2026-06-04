@@ -31,6 +31,11 @@
     });
   }
 
+  function maybeOpenOnboarding(details) {
+    if (!details || details.reason !== "install" || !api.tabs || !api.tabs.create) return;
+    api.tabs.create({ url: api.runtime.getURL("onboarding/onboarding.html") }).catch(function () {});
+  }
+
   function updateBadge(settings) {
     if (!actionApi) return;
     var normalized = shared.normalizeSettings(settings);
@@ -48,7 +53,11 @@
     actionApi.setBadgeBackgroundColor({ color: color });
   }
 
-  api.runtime.onInstalled.addListener(ensureSettings);
+  api.runtime.onInstalled.addListener(function (details) {
+    ensureSettings().then(function () {
+      maybeOpenOnboarding(details);
+    });
+  });
   api.runtime.onStartup.addListener(ensureSettings);
 
   api.storage.onChanged.addListener(function (changes, areaName) {

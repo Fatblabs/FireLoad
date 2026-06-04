@@ -16,6 +16,8 @@ function createHarness() {
   const runtimeListeners = [];
   const storageListeners = [];
   const badges = [];
+  const tabsCreated = [];
+  let installedListener = null;
   let storedSettings;
 
   const browser = {
@@ -33,7 +35,9 @@ function createHarness() {
         return `moz-extension://fireload-test/${file}`;
       },
       onInstalled: {
-        addListener() {}
+        addListener(listener) {
+          installedListener = listener;
+        }
       },
       onStartup: {
         addListener() {}
@@ -42,6 +46,12 @@ function createHarness() {
         addListener(listener) {
           runtimeListeners.push(listener);
         }
+      }
+    },
+    tabs: {
+      create(options) {
+        tabsCreated.push(options);
+        return Promise.resolve({});
       }
     },
     storage: {
@@ -77,6 +87,7 @@ function createHarness() {
   return {
     badges,
     context,
+    tabsCreated,
     get storedSettings() {
       return storedSettings;
     },
@@ -86,6 +97,10 @@ function createHarness() {
     send(message, sender) {
       assert.equal(runtimeListeners.length, 1);
       return runtimeListeners[0](message, sender);
+    },
+    installed(details) {
+      assert.equal(typeof installedListener, "function");
+      return installedListener(details);
     }
   };
 }
@@ -135,6 +150,23 @@ const deniedOtherExtensionSender = {
   );
   assert.equal(denied, undefined);
   assert.equal(harness.storedSettings.mode, "balanced");
+}
+
+{
+  const harness = createHarness();
+  await harness.ready();
+  harness.installed({ reason: "install" });
+  await harness.ready();
+  assert.equal(harness.tabsCreated.length, 1);
+  assert.equal(harness.tabsCreated[0].url, "moz-extension://fireload-test/onboarding/onboarding.html");
+}
+
+{
+  const harness = createHarness();
+  await harness.ready();
+  harness.installed({ reason: "update" });
+  await harness.ready();
+  assert.equal(harness.tabsCreated.length, 0);
 }
 
 {
