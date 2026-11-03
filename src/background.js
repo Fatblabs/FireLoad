@@ -6,6 +6,14 @@
   if (!api || !shared) return;
   var actionApi = api.action || api.browserAction;
   var extensionBase = api.runtime.getURL("");
+  var settingsWrites = Promise.resolve();
+
+  // Serialize read/modify/write operations so simultaneous UI changes cannot overwrite each other.
+  function writeSettings(operation) {
+    var result = settingsWrites.then(operation);
+    settingsWrites = result.catch(function () {});
+    return result;
+  }
 
   function getSettings() {
     return api.storage.local.get(shared.STORAGE_KEY).then(function (result) {
@@ -14,19 +22,23 @@
   }
 
   function saveSettings(patch) {
-    return getSettings().then(function (settings) {
-      var next = shared.mergeSettings(settings, patch);
-      return api.storage.local.set({ [shared.STORAGE_KEY]: next }).then(function () {
-        updateBadge(next);
-        return next;
+    return writeSettings(function () {
+      return getSettings().then(function (settings) {
+        var next = shared.mergeSettings(settings, patch);
+        return api.storage.local.set({ [shared.STORAGE_KEY]: next }).then(function () {
+          updateBadge(next);
+          return next;
+        });
       });
     });
   }
 
   function ensureSettings() {
-    return getSettings().then(function (settings) {
-      return api.storage.local.set({ [shared.STORAGE_KEY]: settings }).then(function () {
-        updateBadge(settings);
+    return writeSettings(function () {
+      return getSettings().then(function (settings) {
+        return api.storage.local.set({ [shared.STORAGE_KEY]: settings }).then(function () {
+          updateBadge(settings);
+        });
       });
     });
   }
@@ -49,16 +61,16 @@
           : "#525252"
       : "#777777";
 
-    actionApi.setBadgeText({ text: text });
-    actionApi.setBadgeBackgroundColor({ color: color });
+    Promise.resolve(actionApi.setBadgeText({ text: text })).catch(function () {});
+    Promise.resolve(actionApi.setBadgeBackgroundColor({ color: color })).catch(function () {});
   }
 
   api.runtime.onInstalled.addListener(function (details) {
     ensureSettings().then(function () {
       maybeOpenOnboarding(details);
-    });
+    }).catch(function () {});
   });
-  api.runtime.onStartup.addListener(ensureSettings);
+  api.runtime.onStartup.addListener(function () { ensureSettings().catch(function () {}); });
 
   api.storage.onChanged.addListener(function (changes, areaName) {
     if (areaName === "local" && changes[shared.STORAGE_KEY]) {
@@ -73,10 +85,10 @@
     if (!shared.isSafeExtensionPageSender(sender, extensionBase, { popup: true, options: true })) {
       return undefined;
     }
-    if (message.type === shared.MESSAGE.GET_SETTINGS) return getSettings();
+    if (message.type === shared.MESSAGE.GET_SETTINGS) return settingsWrites.then(getSettings);
     if (message.type === shared.MESSAGE.SAVE_SETTINGS) return saveSettings(message.patch);
     return undefined;
   });
 
-  ensureSettings();
+  ensureSettings().catch(function () {});
 }).call(typeof globalThis !== "undefined" ? globalThis : this);

@@ -39,6 +39,14 @@ class FakeElement {
     this.listeners[type] = listener;
   }
 
+  removeEventListener(type, listener) {
+    if (this.listeners[type] === listener) delete this.listeners[type];
+  }
+
+  dispatch(type) {
+    if (this.listeners[type]) this.listeners[type]({ type });
+  }
+
   hasAttribute(name) {
     return Object.prototype.hasOwnProperty.call(this.attributes, name);
   }
@@ -68,13 +76,33 @@ class FakeElement {
   }
 }
 
-function createHarness(storedSettings = {}) {
+function createHarness(storedSettings = {}, behavior = {}) {
   const listeners = new Map();
   const head = new FakeElement("head");
   const documentElement = new FakeElement("html");
   const anchors = [];
   const runtimeListeners = [];
   const storageListeners = [];
+  const windowListeners = new Map();
+  const intersections = [];
+  const mutations = [];
+  const metas = [];
+  const timers = new Map();
+  let now = 0;
+  let timerId = 0;
+
+  class FakeIntersectionObserver {
+    constructor(callback) { this.callback = callback; this.observed = new Set(); intersections.push(this); }
+    observe(node) { this.observed.add(node); }
+    unobserve(node) { this.observed.delete(node); }
+    disconnect() { this.observed.clear(); }
+  }
+
+  class FakeMutationObserver {
+    constructor(callback) { this.callback = callback; this.active = false; mutations.push(this); }
+    observe() { this.active = true; }
+    disconnect() { this.active = false; }
+  }
 
   const document = {
     head,
@@ -89,8 +117,8 @@ function createHarness(storedSettings = {}) {
       if (tagName === "head") return [head];
       return [];
     },
-    querySelectorAll() {
-      return [];
+    querySelectorAll(selector) {
+      return selector === "meta[http-equiv]" ? metas : [];
     },
     addEventListener(type, listener) {
       if (!listeners.has(type)) listeners.set(type, []);
@@ -107,6 +135,7 @@ function createHarness(storedSettings = {}) {
     storage: {
       local: {
         get() {
+          if (behavior.get) return behavior.get();
           return Promise.resolve({ fireloadSettings: storedSettings });
         }
       },
@@ -130,16 +159,20 @@ function createHarness(storedSettings = {}) {
   };
 
   const window = {
+    IntersectionObserver: FakeIntersectionObserver,
+    MutationObserver: FakeMutationObserver,
     PointerEvent: function PointerEvent() {},
     innerHeight: 800,
     innerWidth: 1200,
-    setTimeout(callback) {
-      return globalThis.setTimeout(callback, 0);
+    setTimeout(callback, delay) {
+      const id = ++timerId;
+      timers.set(id, { callback, at: now + delay });
+      return id;
     },
     clearTimeout(id) {
-      globalThis.clearTimeout(id);
+      timers.delete(id);
     },
-    addEventListener() {}
+    addEventListener(type, listener) { windowListeners.set(type, listener); }
   };
 
   const context = vm.createContext({
@@ -148,23 +181,23 @@ function createHarness(storedSettings = {}) {
     Date,
     document,
     globalThis: null,
-    IntersectionObserver: class {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    },
+    IntersectionObserver: FakeIntersectionObserver,
+    innerHeight: window.innerHeight,
+    innerWidth: window.innerWidth,
     location: new URL("https://site.test/start"),
-    MutationObserver: class {
-      observe() {}
-      disconnect() {}
-    },
-    navigator: {},
+    MutationObserver: FakeMutationObserver,
+    navigator: behavior.navigator || {},
     Promise,
     Set,
+    Map,
     URL,
     WeakMap,
     window
   });
+  if (behavior.nativeIdle) {
+    window.requestIdleCallback = (callback) => window.setTimeout(callback, 50);
+    window.cancelIdleCallback = window.clearTimeout;
+  }
   context.globalThis = context;
 
   vm.runInContext(sharedSource, context, { filename: "src/shared.js" });
@@ -176,7 +209,26 @@ function createHarness(storedSettings = {}) {
     document,
     head,
     listeners,
+    intersections,
+    mutations,
+    metas,
+    timers,
+    windowListeners,
     runtimeListeners,
+    changeSettings(next) {
+      for (const listener of storageListeners) listener({ fireloadSettings: { newValue: next } }, "local");
+    },
+    advance(ms) {
+      const end = now + ms;
+      for (;;) {
+        const next = [...timers].filter(([, timer]) => timer.at <= end).sort((a, b) => a[1].at - b[1].at)[0];
+        if (!next) break;
+        now = next[1].at;
+        timers.delete(next[0]);
+        next[1].callback();
+      }
+      now = end;
+    },
     async ready() {
       await Promise.resolve();
       await Promise.resolve();
@@ -221,7 +273,7 @@ await assertPrefetchesOn("keydown", { key: "Enter", metaKey: true });
   await harness.ready();
   harness.document.dispatch("mouseover", { target: anchor });
   harness.document.dispatch("mouseout", { target: anchor, relatedTarget: null });
-  await new Promise((resolve) => setTimeout(resolve, 5));
+  harness.advance(100);
   const prefetches = harness.head.children.filter((child) => child.rel === "prefetch" && child.as === "document");
   assert.equal(prefetches.length, 0);
 }
@@ -232,8 +284,7 @@ await assertPrefetchesOn("keydown", { key: "Enter", metaKey: true });
   harness.anchors.push(anchor);
   await harness.ready();
   harness.document.dispatch("mouseover", { target: anchor });
-  harness.document.dispatch("mouseout", { target: anchor, relatedTarget: null });
-  await new Promise((resolve) => setTimeout(resolve, 5));
+  harness.advance(70);
   const prefetches = harness.head.children.filter((child) => child.rel === "prefetch" && child.as === "document");
   assert.equal(prefetches.length, 1);
   assert.equal(prefetches[0].href, "https://other.test/hovered");
@@ -318,4 +369,206 @@ await assertPrefetchesOn("keydown", { key: "Enter", metaKey: true });
   );
 }
 
-console.log("Content intent tests passed.");
+function prefetches(harness) {
+  return harness.head.children.filter((child) => child.rel === "prefetch");
+}
+
+function intent(harness, anchor) {
+  harness.document.dispatch("contextmenu", { target: anchor, button: 2 });
+}
+
+for (const [mode, budget, concurrency] of [["efficiency", 4, 1], ["balanced", 12, 2], ["blazing", 36, 6]]) {
+  const harness = createHarness({ mode, liveCacheTracking: true });
+  await harness.ready();
+  for (let i = 0; i < 100; i++) intent(harness, link(`https://site.test/page-${i}`));
+  assert.equal(prefetches(harness).length, concurrency, `${mode} concurrency`);
+  assert.equal((await harness.summary()).queued, budget - concurrency, `${mode} queued budget`);
+  for (let i = 0; i < budget; i++) {
+    for (const hint of [...prefetches(harness)]) hint.dispatch("load");
+  }
+  assert.equal(prefetches(harness).length, budget, `${mode} total budget`);
+  assert.equal((await harness.summary()).inFlight, 0);
+  assert.equal((await harness.summary()).queued, 0);
+  assert.equal((await harness.summary()).prefetched, budget);
+}
+
+{
+  let resolveSettings;
+  const harness = createHarness({}, { get: () => new Promise((resolve) => { resolveSettings = resolve; }) });
+  intent(harness, link("https://site.test/early"));
+  assert.equal(prefetches(harness).length, 0, "no work before settings load");
+  harness.changeSettings({ enabled: false });
+  resolveSettings({ fireloadSettings: { enabled: true } });
+  await harness.ready();
+  intent(harness, link("https://site.test/late"));
+  assert.equal(prefetches(harness).length, 0, "stale startup read cannot overwrite newer settings");
+}
+
+{
+  const harness = createHarness({}, { get: () => Promise.reject(new Error("Storage unavailable")) });
+  await harness.ready();
+  intent(harness, link("https://site.test/early"));
+  assert.equal(prefetches(harness).length, 0, "storage failure must not enable speculative requests");
+}
+
+for (const event of ["mouseover", "focusin"]) {
+  const harness = createHarness({ mode: "efficiency" });
+  await harness.ready();
+  const anchor = link("https://site.test/cancelled");
+  harness.document.dispatch(event, { target: anchor });
+  harness.document.dispatch(event === "mouseover" ? "mouseout" : "focusout", { target: anchor });
+  harness.advance(1000);
+  assert.equal(prefetches(harness).length, 0, `${event} leaving cancels intent`);
+}
+
+for (const patch of [{ enabled: false }, { blockedHosts: ["site.test"] }, { mode: "efficiency" }]) {
+  const harness = createHarness({ mode: "balanced", liveCacheTracking: true });
+  await harness.ready();
+  for (let i = 0; i < 8; i++) intent(harness, link(`https://site.test/queued-${i}`));
+  const old = [...prefetches(harness)];
+  assert.ok((await harness.summary()).queued > 0);
+  harness.changeSettings({ mode: "balanced", liveCacheTracking: true, ...patch });
+  assert.equal((await harness.summary()).queued, 0, "settings discard stale queue");
+  assert.equal((await harness.summary()).inFlight, 0, "settings release old work");
+  assert.equal(prefetches(harness).length, 0, "settings remove stale hints");
+  for (const hint of old) hint.dispatch("load");
+  harness.advance(10000);
+  assert.equal(prefetches(harness).length, 0, "late events cannot resume old work");
+}
+
+{
+  const harness = createHarness({ mode: "balanced", allowCrossSiteDocumentPrefetch: true });
+  await harness.ready();
+  for (let i = 0; i < 6; i++) intent(harness, link(`https://other.test/page-${i}`));
+  harness.changeSettings({ mode: "balanced", allowCrossSiteDocumentPrefetch: false });
+  harness.advance(20000);
+  assert.equal(prefetches(harness).length, 0, "revoking cross-site consent discards queued requests");
+}
+
+{
+  const harness = createHarness({ mode: "balanced" });
+  await harness.ready();
+  const anchor = link("https://site.test/visible-again");
+  harness.anchors.push(anchor);
+  harness.document.visibilityState = "hidden";
+  harness.document.dispatch("visibilitychange", {});
+  assert.ok(harness.mutations.every((observer) => !observer.active));
+  harness.advance(10000);
+  assert.equal(prefetches(harness).length, 0);
+  harness.document.visibilityState = "visible";
+  harness.document.dispatch("visibilitychange", {});
+  const observer = harness.intersections.at(-1);
+  assert.ok(observer.observed.has(anchor));
+  observer.callback([{ isIntersecting: true, target: anchor }]);
+  assert.equal(prefetches(harness).length, 1, "visible tab resumes prediction");
+}
+
+{
+  const harness = createHarness({ mode: "balanced" });
+  await harness.ready();
+  const observer = harness.mutations.at(-1);
+  intent(harness, link("https://site.test/next"));
+  const timerCount = harness.timers.size;
+  observer.callback([{ type: "childList", addedNodes: prefetches(harness), removedNodes: [] }]);
+  observer.callback([{ type: "childList", addedNodes: [{ nodeType: 3 }], removedNodes: [] }]);
+  assert.equal(harness.timers.size, timerCount, "hints and text cannot cause repeated rescans");
+  observer.callback([{ type: "attributes" }]);
+  assert.equal(harness.timers.size, timerCount + 1, "changed href schedules a rescan");
+}
+
+{
+  const harness = createHarness({ mode: "efficiency", liveCacheTracking: true });
+  await harness.ready();
+  intent(harness, link("https://site.test/first"));
+  intent(harness, link("https://site.test/second"));
+  const first = prefetches(harness)[0];
+  first.dispatch("error");
+  first.dispatch("load");
+  assert.equal(prefetches(harness).length, 2, "error drains queue exactly once");
+  assert.equal((await harness.summary()).inFlight, 1);
+  harness.advance(4500);
+  assert.equal((await harness.summary()).inFlight, 0, "timeout releases queue slot");
+}
+
+{
+  const harness = createHarness({ mode: "balanced" });
+  await harness.ready();
+  intent(harness, link("https://site.test/first#one"));
+  intent(harness, link("https://site.test/first#two"));
+  assert.equal(prefetches(harness).length, 1, "fragment variants deduplicate");
+  harness.changeSettings({ mode: "balanced", liveCacheTracking: true });
+  assert.equal(prefetches(harness).length, 1, "tracking toggle must not cancel useful work");
+}
+
+{
+  const harness = createHarness({ mode: "balanced" });
+  harness.document.readyState = "loading";
+  const anchor = link("https://site.test/after-dom");
+  harness.anchors.push(anchor);
+  await harness.ready();
+  assert.equal(harness.intersections.length, 0);
+  harness.document.readyState = "complete";
+  harness.document.dispatch("DOMContentLoaded", {});
+  assert.ok(harness.intersections.at(-1).observed.has(anchor));
+}
+
+{
+  const harness = createHarness({ mode: "balanced" }, { nativeIdle: true });
+  harness.anchors.push(link("https://site.test/idle"));
+  await harness.ready();
+  harness.advance(50);
+  assert.equal(prefetches(harness).length, 1, "native idle callback scans visible candidates");
+  harness.windowListeners.get("pagehide")();
+  assert.equal(prefetches(harness).length, 0);
+  harness.windowListeners.get("pageshow")();
+  assert.ok(harness.mutations.at(-1).active, "BFCache restore restarts observers");
+}
+
+{
+  const harness = createHarness({ mode: "balanced" }, { nativeIdle: true });
+  harness.anchors.push(link("https://site.test/stale-idle"));
+  await harness.ready();
+  harness.changeSettings({ mode: "efficiency" });
+  harness.advance(5000);
+  assert.equal(prefetches(harness).length, 0, "mode change cancels native idle work");
+}
+
+{
+  let changeNetwork;
+  const connection = { saveData: true, addEventListener(_type, callback) { changeNetwork = callback; } };
+  const harness = createHarness({ mode: "blazing" }, { navigator: { connection } });
+  await harness.ready();
+  assert.equal((await harness.summary()).activeMode, "Efficiency");
+  assert.equal(harness.intersections.length, 0);
+  connection.saveData = false;
+  changeNetwork();
+  assert.equal((await harness.summary()).activeMode, "Blazing Fast");
+  assert.ok(harness.intersections.length > 0);
+}
+
+{
+  const harness = createHarness({ mode: "balanced" });
+  harness.metas.push(new FakeElement("meta", { "http-equiv": "x-dns-prefetch-control", content: "off" }));
+  await harness.ready();
+  intent(harness, link("https://site.test/opted-out"));
+  harness.advance(10000);
+  assert.equal(prefetches(harness).length, 0);
+  assert.equal((await harness.summary()).status, "page opt-out");
+}
+
+for (const promoteExisting of [false, true]) {
+  const harness = createHarness({ mode: "balanced" });
+  for (let i = 0; i < 12; i++) harness.anchors.push(link(`https://site.test/predicted-${i}`));
+  await harness.ready();
+  const observer = harness.intersections.at(-1);
+  observer.callback(harness.anchors.map((anchor) => ({ isIntersecting: true, target: anchor })));
+  assert.equal((await harness.summary()).queued, 10);
+  const target = promoteExisting ? harness.anchors[10] : link("https://site.test/actual-intent");
+  intent(harness, target);
+  assert.equal((await harness.summary()).queued, 10, "intent must not expand a full budget");
+  prefetches(harness)[0].dispatch("load");
+  assert.equal(prefetches(harness)[2].href, target.href, "intent takes priority over viewport prediction");
+  assert.equal(prefetches(harness)[2].dataset.fireload, "contextmenu");
+}
+
+console.log("Content intent, budgets, lifecycle, and privacy regression tests passed.");

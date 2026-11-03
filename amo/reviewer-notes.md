@@ -26,3 +26,9 @@ The resulting package is:
 ```text
 dist/fireload.xpi
 ```
+
+Node.js 22.16.0 or newer and Info-ZIP zip/unzip are required for the local gates. No install is needed for the unit tests or build. `npm run source:zip` creates `dist/fireload-source.zip`; `npm test` verifies that extracting that archive and building it reproduces the exact XPI.
+
+The existing AMO listing uses `fireload@local.dev`. This ID is intentionally retained for update compatibility.
+
+The release workflow also runs `npm run test:firefox` on Linux with Firefox, geckodriver, and the isolated test-only dependency selenium-webdriver 4.44.0. See README.md for local setup and executable overrides. These tools are not included in the add-on.

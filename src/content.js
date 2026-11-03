@@ -11,7 +11,13 @@
   var observer = null;
   var mutationObserver = null;
   var mutationTimer = 0;
-  var hoverTimers = new WeakMap();
+  var hoverTimers = new Map();
+  var settingsLoaded = false;
+  var settingsRevision = 0;
+  var workRevision = 0;
+  var idleTimer = 0;
+  var idleIsNative = false;
+  var pageHidden = false;
   var extensionBase = api.runtime.getURL("");
   var state = {
     queue: [],
@@ -21,6 +27,7 @@
     warmedOrigins: new Set(),
     hintKeys: new Set(),
     hintElements: [],
+    requests: new Set(),
     stats: {
       documentPrefetches: 0,
       dnsPrefetches: 0,
@@ -31,17 +38,23 @@
   };
 
   function loadSettings() {
+    var revision = settingsRevision;
     return api.storage.local.get(shared.STORAGE_KEY).then(function (result) {
-      applySettings(result[shared.STORAGE_KEY]);
-    }).catch(function () {
-      applySettings(settings);
-    });
+      if (revision === settingsRevision) applySettings(result[shared.STORAGE_KEY]);
+    }).catch(function () {});
   }
 
   function applySettings(raw) {
+    var previous = JSON.stringify([settings.enabled, settings.mode, settings.allowCrossSiteDocumentPrefetch,
+      settings.respectSaveData, settings.respectNoPrefetch, settings.blockSensitiveUrls, settings.blockedHosts]);
     settings = shared.normalizeSettings(raw);
+    var next = JSON.stringify([settings.enabled, settings.mode, settings.allowCrossSiteDocumentPrefetch,
+      settings.respectSaveData, settings.respectNoPrefetch, settings.blockSensitiveUrls, settings.blockedHosts]);
+    var wasLoaded = settingsLoaded;
+    settingsLoaded = true;
+    if (wasLoaded && previous === next) return;
     config = activeConfig();
-    resetObservers();
+    suspendWork();
     schedulePageWork();
   }
 
@@ -53,6 +66,7 @@
   }
 
   function isActive() {
+    if (!settingsLoaded || pageHidden) return false;
     if (!settings.enabled) return false;
     if (!shared.classifyPage(location.href, settings).ok) return false;
     if (settings.respectNoPrefetch && shared.pageDisablesPrefetch(document)) return false;
@@ -72,10 +86,18 @@
   }
 
   function idle(callback, timeout) {
+    if (idleTimer) return;
+    var revision = workRevision;
+    function run() {
+      idleTimer = 0;
+      if (revision === workRevision && config.idleScan) callback();
+    }
     if ("requestIdleCallback" in window) {
-      window.requestIdleCallback(callback, { timeout: timeout || 1200 });
+      idleIsNative = true;
+      idleTimer = window.requestIdleCallback(run, { timeout: timeout || 1200 });
     } else {
-      window.setTimeout(callback, Math.min(timeout || 800, 1200));
+      idleIsNative = false;
+      idleTimer = window.setTimeout(run, Math.min(timeout || 800, 1200));
     }
   }
 
@@ -85,8 +107,9 @@
       callback(head);
       return;
     }
+    var revision = workRevision;
     document.addEventListener("DOMContentLoaded", function () {
-      callback(document.head || document.documentElement);
+      if (revision === workRevision && isActive()) callback(document.head || document.documentElement);
     }, { once: true });
   }
 
@@ -148,10 +171,27 @@
 
   function enqueueDocument(url, reason, force) {
     var key = shared.cacheKey(url);
-    if (state.prefetched.has(key) || state.queued.has(key)) return;
-    if (state.queue.length >= config.maxQueue) return;
+    if (state.prefetched.has(key)) return;
+    if (state.queued.has(key)) {
+      if (force) {
+        var index = state.queue.findIndex(function (job) { return job.key === key; });
+        var existing = state.queue.splice(index, 1)[0];
+        existing.reason = reason;
+        existing.force = true;
+        state.queue.unshift(existing);
+        drainQueue();
+      }
+      return;
+    }
+    if (state.queue.length >= config.maxQueue || state.prefetched.size + state.queue.length >= config.maxDocumentPrefetches) {
+      if (!force) return;
+      // Explicit intent can replace a speculative job without expanding the budget.
+      var replacement = state.queue.findLastIndex(function (job) { return !job.force; });
+      if (replacement < 0) return;
+      state.queued.delete(state.queue.splice(replacement, 1)[0].key);
+    }
 
-    var job = { url: url, key: key, reason: reason };
+    var job = { url: url, key: key, reason: reason, force: force };
     state.queued.add(key);
     if (force) state.queue.unshift(job);
     else state.queue.push(job);
@@ -164,6 +204,8 @@
       var job = state.queue.shift();
       state.queued.delete(job.key);
       if (state.prefetched.has(job.key)) continue;
+      var candidate = shared.classifyUrl(job.url.href, location.href, settings);
+      if (!candidate.ok || !allowsDocumentPrefetch(candidate, job.reason, job.force)) continue;
 
       state.inFlight += 1;
       state.prefetched.add(job.key);
@@ -178,27 +220,37 @@
   function insertDocumentPrefetch(job) {
     var done = false;
     var timeoutId = 0;
+    var link = null;
 
-    function finish() {
+    function finish(cancelled) {
       if (done) return;
       done = true;
       window.clearTimeout(timeoutId);
+      state.requests.delete(cancel);
+      if (link) {
+        link.removeEventListener("load", complete);
+        link.removeEventListener("error", complete);
+        if (cancelled && link.parentNode) link.parentNode.removeChild(link);
+      }
       state.inFlight = Math.max(0, state.inFlight - 1);
-      drainQueue();
+      if (!cancelled) drainQueue();
     }
 
+    function complete() { finish(false); }
+    function cancel() { finish(true); }
+    state.requests.add(cancel);
     withHead(function (head) {
-      var link = document.createElement("link");
+      link = document.createElement("link");
       link.rel = "prefetch";
       link.as = "document";
       link.href = job.url.href;
       link.referrerPolicy = "strict-origin-when-cross-origin";
       link.dataset.fireload = job.reason;
-      link.addEventListener("load", finish, { once: true });
-      link.addEventListener("error", finish, { once: true });
+      link.addEventListener("load", complete, { once: true });
+      link.addEventListener("error", complete, { once: true });
+      timeoutId = window.setTimeout(complete, config.prefetchTimeoutMs);
       head.appendChild(link);
       trackHint(link);
-      timeoutId = window.setTimeout(finish, config.prefetchTimeoutMs);
     });
   }
 
@@ -242,22 +294,31 @@
     }, config.hoverDelayMs));
   }
 
+  function onMouseOut(event) {
+    var anchor = getAnchor(event.target);
+    if (anchor && (!event.relatedTarget || !anchor.contains(event.relatedTarget))) clearHoverTimer(anchor);
+  }
+
   function onFocusIn(event) {
     var anchor = getAnchor(event.target);
-    if (!anchor) return;
+    if (!anchor || !isActive()) return;
     warmAnchor(anchor, "focus");
-    window.setTimeout(function () {
+    clearHoverTimer(anchor);
+    hoverTimers.set(anchor, window.setTimeout(function () {
       prefetchAnchor(anchor, "focus", true);
-    }, config.hoverDelayMs);
+      hoverTimers.delete(anchor);
+    }, config.hoverDelayMs));
   }
 
   function onTouchStart(event) {
     var anchor = getAnchor(event.target);
-    if (!anchor) return;
+    if (!anchor || !isActive()) return;
     warmAnchor(anchor, "touch");
-    window.setTimeout(function () {
+    clearHoverTimer(anchor);
+    hoverTimers.set(anchor, window.setTimeout(function () {
       prefetchAnchor(anchor, "touch", true);
-    }, config.touchDelayMs);
+      hoverTimers.delete(anchor);
+    }, config.touchDelayMs));
   }
 
   function onContextMenu(event) {
@@ -331,11 +392,12 @@
 
   function setupIntersectionObserver() {
     if (!config.viewportPrefetch || !("IntersectionObserver" in window)) return;
-    observer = new IntersectionObserver(function (entries) {
+    var currentObserver = new IntersectionObserver(function (entries) {
+      if (observer !== currentObserver || !isActive()) return;
       for (var i = 0; i < entries.length; i += 1) {
         if (!entries[i].isIntersecting) continue;
         var anchor = entries[i].target;
-        observer.unobserve(anchor);
+        currentObserver.unobserve(anchor);
         warmAnchor(anchor, "visible");
         if (config.visibleDocumentPrefetch) prefetchAnchor(anchor, "visible", false);
       }
@@ -343,6 +405,7 @@
       rootMargin: config.viewportRootMargin,
       threshold: 0.01
     });
+    observer = currentObserver;
 
     var anchors = Array.prototype.slice.call(document.links || [], 0, config.maxObservedAnchors);
     for (var i = 0; i < anchors.length; i += 1) {
@@ -354,7 +417,14 @@
 
   function setupMutationObserver() {
     if (!config.observeMutations || !("MutationObserver" in window) || !document.documentElement) return;
-    mutationObserver = new MutationObserver(function () {
+    mutationObserver = new MutationObserver(function (records) {
+      // Ignore our own hints and text-only updates; neither changes link candidates.
+      var relevant = records.some(function (record) {
+        if (record.type === "attributes") return true;
+        return Array.prototype.some.call(record.addedNodes, isPageElement) ||
+          Array.prototype.some.call(record.removedNodes, isPageElement);
+      });
+      if (!relevant) return;
       if (mutationTimer) return;
       mutationTimer = window.setTimeout(function () {
         mutationTimer = 0;
@@ -362,7 +432,13 @@
         schedulePageWork();
       }, settings.mode === "blazing" ? 900 : 2400);
     });
-    mutationObserver.observe(document.documentElement, { childList: true, subtree: true });
+    mutationObserver.observe(document.documentElement, {
+      childList: true, subtree: true, attributes: true, attributeFilter: ["href", "rel", "download"]
+    });
+  }
+
+  function isPageElement(node) {
+    return node.nodeType === 1 && !(node.tagName === "LINK" && node.dataset && node.dataset.fireload);
   }
 
   function resetObservers() {
@@ -380,12 +456,29 @@
     }
   }
 
+  function suspendWork() {
+    workRevision += 1;
+    resetObservers();
+    if (idleTimer) {
+      if (idleIsNative) window.cancelIdleCallback(idleTimer);
+      else window.clearTimeout(idleTimer);
+      idleTimer = 0;
+    }
+    hoverTimers.forEach(function (timer) { window.clearTimeout(timer); });
+    hoverTimers.clear();
+    state.queue.length = 0;
+    state.queued.clear();
+    state.requests.forEach(function (cancel) { cancel(); });
+    state.hintElements.forEach(function (link) {
+      if (link.parentNode) link.parentNode.removeChild(link);
+    });
+    state.hintElements.length = 0;
+  }
+
   function schedulePageWork() {
     if (!isActive()) return;
-    if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", schedulePageWork, { once: true });
-      return;
-    }
+    if (document.readyState === "loading") return;
+    resetObservers();
     setupIntersectionObserver();
     setupMutationObserver();
     if (config.idleScan) {
@@ -397,6 +490,7 @@
 
   function pageStatus() {
     var page = shared.classifyPage(location.href, settings);
+    if (!settingsLoaded) return "settings unavailable";
     if (!settings.enabled) return "disabled";
     if (!page.ok) return page.reason;
     if (settings.respectNoPrefetch && shared.pageDisablesPrefetch(document)) return "page opt-out";
@@ -425,7 +519,9 @@
   }
 
   document.addEventListener("mouseover", onMouseOver, true);
+  document.addEventListener("mouseout", onMouseOut, true);
   document.addEventListener("focusin", onFocusIn, true);
+  document.addEventListener("focusout", onMouseOut, true);
   document.addEventListener("touchstart", onTouchStart, { capture: true, passive: true });
   document.addEventListener("contextmenu", onContextMenu, true);
   if ("PointerEvent" in window) {
@@ -435,9 +531,26 @@
   document.addEventListener("auxclick", onAuxClick, true);
   document.addEventListener("click", onClick, true);
   document.addEventListener("keydown", onKeyDown, true);
+  document.addEventListener("DOMContentLoaded", schedulePageWork, { once: true });
+  document.addEventListener("visibilitychange", function () {
+    suspendWork();
+    config = activeConfig();
+    schedulePageWork();
+  });
+  window.addEventListener("pagehide", function () { pageHidden = true; suspendWork(); });
+  window.addEventListener("pageshow", function () { pageHidden = false; schedulePageWork(); });
+  var connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  if (connection && connection.addEventListener) {
+    connection.addEventListener("change", function () {
+      suspendWork();
+      config = activeConfig();
+      schedulePageWork();
+    });
+  }
 
   api.storage.onChanged.addListener(function (changes, areaName) {
     if (areaName === "local" && changes[shared.STORAGE_KEY]) {
+      settingsRevision += 1;
       applySettings(changes[shared.STORAGE_KEY].newValue);
     }
   });

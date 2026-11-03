@@ -9,7 +9,7 @@ const sharedSource = fs.readFileSync(path.join(root, "src/shared.js"), "utf8");
 const backgroundSource = fs.readFileSync(path.join(root, "src/background.js"), "utf8");
 
 async function settle() {
-  for (let i = 0; i < 8; i += 1) await Promise.resolve();
+  for (let i = 0; i < 32; i += 1) await Promise.resolve();
 }
 
 function createHarness() {
@@ -77,7 +77,8 @@ function createHarness() {
     console,
     globalThis: null,
     JSON,
-    Promise
+    Promise,
+    URL
   });
   context.globalThis = context;
 
@@ -183,4 +184,18 @@ const deniedOtherExtensionSender = {
   assert.equal({}.polluted, undefined);
 }
 
-console.log("Background message security tests passed.");
+{
+  const harness = createHarness();
+  // Include initialization in the race, as an event page may start on a message.
+  const type = harness.context.FireLoadShared.MESSAGE.SAVE_SETTINGS;
+  await Promise.all([
+    harness.send({ type, patch: { mode: "blazing" } }, allowedPopupSender),
+    harness.send({ type, patch: { enabled: false } }, allowedOptionsSender),
+    harness.send({ type, patch: { blockedHosts: ["example.com"] } }, allowedOptionsSender)
+  ]);
+  assert.equal(harness.storedSettings.mode, "blazing");
+  assert.equal(harness.storedSettings.enabled, false);
+  assert.equal(harness.storedSettings.blockedHosts[0], "example.com");
+}
+
+console.log("Background message security and concurrent save tests passed.");

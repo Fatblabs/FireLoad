@@ -4,9 +4,13 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   extension:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -17,7 +21,7 @@ jobs:
           node-version: "22.16.0"
 
       - name: Install system build tools
-        run: sudo apt-get update && sudo apt-get install -y zip
+        run: sudo apt-get update && sudo apt-get install -y zip unzip
 
       - name: Check extension structure
         run: npm run check
@@ -30,3 +34,24 @@ jobs:
 
       - name: Build XPI
         run: npm run build
+
+      - name: Create source archive
+        run: npm run source:zip
+
+      - name: Setup Firefox
+        id: firefox
+        uses: browser-actions/setup-firefox@v1
+        with:
+          firefox-version: latest
+
+      - name: Setup geckodriver
+        uses: browser-actions/setup-geckodriver@v1
+
+      - name: Install isolated browser test dependencies
+        run: npm install --prefix "$RUNNER_TEMP/fireload-automation" --ignore-scripts --no-audit --no-fund selenium-webdriver@4.44.0
+
+      - name: Verify prefetching and navigation cache in Firefox
+        env:
+          FIREFOX_BINARY: ${{ steps.firefox.outputs.firefox-path }}
+          NODE_PATH: ${{ runner.temp }}/fireload-automation/node_modules
+        run: npm run test:firefox

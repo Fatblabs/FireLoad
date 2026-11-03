@@ -2,13 +2,14 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
-const { Builder, By, until } = require("selenium-webdriver");
+const os = require("node:os");
+const { By, until } = require("selenium-webdriver");
 const firefox = require("selenium-webdriver/firefox");
-const geckodriver = require("geckodriver");
 
 const root = path.resolve(__dirname, "..");
 const xpiPath = path.join(root, "dist", "fireload.xpi");
-const firefoxBinary = "/Applications/Firefox.app/Contents/MacOS/firefox";
+const firefoxBinary = process.env.FIREFOX_BINARY || (process.platform === "darwin"
+  ? "/Applications/Firefox.app/Contents/MacOS/firefox" : "/usr/bin/firefox");
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -129,13 +130,24 @@ async function main() {
   assert.ok(fs.existsSync(firefoxBinary), `Missing Firefox binary at ${firefoxBinary}`);
 
   const primary = await startServer();
-  const crossOrigin = await startServer();
+  let crossOrigin;
+  try {
+    crossOrigin = await startServer();
+  } catch (error) {
+    await new Promise((resolve) => primary.server.close(resolve));
+    throw error;
+  }
   const { server, requests, baseUrl } = primary;
   let driver;
-  let geckoProcess;
+  let service;
+  const log = path.join(os.tmpdir(), `fireload-geckodriver-${process.pid}.log`);
+  const logFd = fs.openSync(log, "w");
+  const watchdog = setTimeout(() => {
+    console.error(`Firefox integration timed out. Driver log: ${log}`);
+    if (service) service.kill().catch(() => {});
+  }, 60000);
 
   try {
-    geckoProcess = await geckodriver.start({});
     const options = new firefox.Options()
       .setBinary(firefoxBinary)
       .addArguments("-headless")
@@ -146,12 +158,27 @@ async function main() {
       .setPreference("network.predictor.enabled", true)
       .setPreference("network.dns.disablePrefetch", false);
 
-    driver = await new Builder()
-      .forBrowser("firefox")
-      .setFirefoxOptions(options)
-      .build();
+    service = new firefox.ServiceBuilder(process.env.GECKODRIVER)
+      .enableVerboseLogging().setStdio(["ignore", logFd, logFd]).build();
+    console.log(`Starting isolated Firefox; driver log: ${log}`);
+    driver = firefox.Driver.createSession(options, service);
+    await driver.getSession();
+    await driver.manage().setTimeouts({ pageLoad: 15000, script: 10000 });
+    console.log("Firefox started; installing FireLoad.");
 
     await driver.installAddon(xpiPath, true);
+    const extensionBase = await driver.wait(async () => {
+      for (const handle of await driver.getAllWindowHandles()) {
+        await driver.switchTo().window(handle);
+        const url = await driver.getCurrentUrl();
+        if (url.startsWith("moz-extension://")) return url.slice(0, url.indexOf("/", "moz-extension://".length)) + "/";
+      }
+      return false;
+    }, 10000, "onboarding tab");
+    await driver.get(extensionBase + "options/options.html");
+    await driver.wait(until.elementLocated(By.css(".mode-row button[aria-pressed='true']")), 5000);
+    await driver.findElement(By.css('[data-mode="efficiency"]')).click();
+    await driver.wait(until.elementTextIs(await driver.findElement(By.id("saveState")), "Saved"), 5000);
     await driver.switchTo().newWindow("tab");
     await driver.get(baseUrl + "/");
     await sleep(1500);
@@ -196,6 +223,7 @@ async function main() {
     const hoverRequest = targetRequests[targetRequests.length - 1];
     assert.equal(hoverRequest.method, "GET");
     assert.equal(hoverRequest.headers["sec-purpose"], "prefetch");
+    assert.equal(beforeHoverTargetCount, 0, "Efficiency must wait for intent");
 
     await sleep(250);
     const currentUrl = await driver.getCurrentUrl();
@@ -231,6 +259,41 @@ async function main() {
     const crossRequests = findRequests(crossOrigin.requests, crossTargetPath);
     assert.equal(crossRequests.length, crossBefore);
 
+    await driver.get(baseUrl + "/target?case=hover");
+    assert.equal(countRequests(requests, "/target?case=hover"), targetRequests.length, "navigation should reuse the fresh prefetched document");
+    assert.equal(await driver.findElement(By.css("h1")).getText(), "Target");
+
+    const cacheReuse = { navigation: true, newTab: false, newWindow: false };
+    for (const kind of ["tab", "window"]) {
+      await driver.get(baseUrl + "/");
+      const sourceHandle = await driver.getWindowHandle();
+      const targetPath = `/target?case=new-${kind}`;
+      const target = await addLink(driver, `new-${kind}`, targetPath, "Open target");
+      await driver.executeScript(`arguments[0].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, button: 2 }));`, target);
+      await waitFor(() => findRequests(requests, targetPath).some((request) => request.headers["sec-purpose"] === "prefetch"), 5000, `${kind} prefetch`);
+      await sleep(250);
+      const beforeNavigation = countRequests(requests, targetPath);
+      await driver.switchTo().newWindow(kind);
+      await driver.get(baseUrl + targetPath);
+      assert.equal(await driver.findElement(By.css("h1")).getText(), "Target");
+      assert.equal(countRequests(requests, targetPath), beforeNavigation, `${kind} must reuse a fresh prefetched response`);
+      cacheReuse[kind === "tab" ? "newTab" : "newWindow"] = true;
+      await driver.close();
+      await driver.switchTo().window(sourceHandle);
+    }
+
+    await driver.get(extensionBase + "options/options.html");
+    await driver.wait(until.elementLocated(By.css(".mode-row button[aria-pressed='true']")), 5000);
+    const crossSiteToggle = await driver.findElement(By.id("allowCrossSiteDocumentPrefetch"));
+    assert.equal(await crossSiteToggle.isSelected(), false);
+    await crossSiteToggle.click();
+    await driver.wait(until.elementTextIs(await driver.findElement(By.id("saveState")), "Saved"), 5000);
+    await driver.get(baseUrl + "/");
+    const optedInPath = "/cross-target?case=opted-in";
+    const optedIn = await addLink(driver, "opted-in", crossOrigin.baseUrl + optedInPath, "Cross origin target");
+    await driver.executeScript(`arguments[0].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, button: 2 }));`, optedIn);
+    await waitFor(() => findRequests(crossOrigin.requests, optedInPath).some((request) => request.headers["sec-purpose"] === "prefetch"), 5000, "explicit cross-origin opt-in");
+
     console.log(JSON.stringify({
       ok: true,
       baseUrl,
@@ -246,11 +309,17 @@ async function main() {
         accept: hoverRequest.headers.accept || null
       },
       crossSiteDocumentPrefetchDefault: "blocked",
+      crossSiteDocumentPrefetchOptIn: "requested",
+      cacheReuse,
       currentUrl
     }, null, 2));
   } finally {
+    clearTimeout(watchdog);
     if (driver) await driver.quit().catch(() => {});
-    if (geckoProcess && geckoProcess.kill) geckoProcess.kill();
+    if (service) await service.kill().catch(() => {});
+    fs.closeSync(logFd);
+    server.closeAllConnections();
+    crossOrigin.server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
     await new Promise((resolve) => crossOrigin.server.close(resolve));
   }

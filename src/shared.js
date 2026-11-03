@@ -127,15 +127,24 @@
   }
 
   function modeConfig(mode) {
-    return clone(MODE_CONFIGS[mode] || MODE_CONFIGS[DEFAULT_SETTINGS.mode]);
+    return clone(MODE_CONFIGS[isMode(mode) ? mode : DEFAULT_SETTINGS.mode]);
+  }
+
+  function isMode(mode) {
+    return typeof mode === "string" && HAS_OWN.call(MODE_CONFIGS, mode);
   }
 
   function cleanHost(value) {
-    return String(value || "")
-      .trim()
-      .toLowerCase()
-      .replace(/^https?:\/\//, "")
-      .replace(/\/.*$/, "");
+    if (typeof value !== "string") return "";
+    var host = value.trim().toLowerCase();
+    var prefix = host.indexOf("*.") === 0 ? "*." : host.charAt(0) === "." ? "." : "";
+    try {
+      var url = new URL(/^https?:\/\//.test(host) ? host : "https://" + host.slice(prefix.length));
+      if (url.username || url.password) return "";
+      return prefix + url.hostname.replace(/\.$/, "");
+    } catch (error) {
+      return "";
+    }
   }
 
   function readOwn(source, key) {
@@ -148,7 +157,7 @@
     var blockedHosts = readOwn(source, "blockedHosts");
     var settings = {
       enabled: readOwn(source, "enabled") !== false,
-      mode: MODE_CONFIGS[mode] ? mode : DEFAULT_SETTINGS.mode,
+      mode: isMode(mode) ? mode : DEFAULT_SETTINGS.mode,
       liveCacheTracking: readOwn(source, "liveCacheTracking") === true,
       allowCrossSiteDocumentPrefetch: readOwn(source, "allowCrossSiteDocumentPrefetch") === true,
       respectSaveData: readOwn(source, "respectSaveData") !== false,
@@ -167,6 +176,7 @@
 
     if (!url) return { ok: false, reason: "invalid page" };
     if (url.protocol !== "http:" && url.protocol !== "https:") return { ok: false, reason: "protocol" };
+    if (url.username || url.password) return { ok: false, reason: "credentials" };
     if (isBlockedHost(url.hostname, normalized.blockedHosts)) return { ok: false, reason: "blocked host" };
     if (normalized.blockSensitiveUrls && isSensitiveUrl(url)) {
       return { ok: false, reason: "sensitive page" };
@@ -189,7 +199,7 @@
     };
 
     if (readOwn(source, "enabled") !== undefined) next.enabled = readOwn(source, "enabled") === true;
-    if (MODE_CONFIGS[readOwn(source, "mode")]) next.mode = readOwn(source, "mode");
+    if (isMode(readOwn(source, "mode"))) next.mode = readOwn(source, "mode");
     if (readOwn(source, "liveCacheTracking") !== undefined) {
       next.liveCacheTracking = readOwn(source, "liveCacheTracking") === true;
     }
@@ -263,7 +273,7 @@
 
   function hostMatches(hostname, blockedHost) {
     if (!blockedHost) return false;
-    var host = hostname.toLowerCase();
+    var host = hostname.toLowerCase().replace(/\.$/, "");
     var blocked = blockedHost.toLowerCase();
     if (blocked.indexOf("*.") === 0) {
       var suffix = blocked.slice(1);
@@ -291,7 +301,13 @@
   }
 
   function isSensitiveUrl(url) {
-    return SENSITIVE_TOKEN_RE.test(url.pathname + url.search + url.hash) || hasSensitiveQuery(url);
+    var path = url.pathname + url.search + url.hash;
+    try {
+      path = decodeURIComponent(path);
+    } catch (error) {
+      return true;
+    }
+    return SENSITIVE_TOKEN_RE.test(path) || hasSensitiveQuery(url);
   }
 
   function classifyUrl(href, baseHref, settings) {
@@ -302,12 +318,16 @@
     if (!url || !current) return { ok: false, reason: "invalid" };
     if (url.protocol !== "http:" && url.protocol !== "https:") return { ok: false, reason: "protocol" };
     if (url.username || url.password) return { ok: false, reason: "credentials" };
-    if (href.length > 2048) return { ok: false, reason: "length" };
+    if (url.href.length > 2048) return { ok: false, reason: "length" };
     if (current.protocol === "https:" && url.protocol === "http:") return { ok: false, reason: "downgrade" };
     if (url.origin === current.origin && url.pathname === current.pathname && url.search === current.search) {
       return { ok: false, reason: "same-document" };
     }
-    if (STATIC_FILE_RE.test(url.pathname)) return { ok: false, reason: "static" };
+    try {
+      if (STATIC_FILE_RE.test(decodeURIComponent(url.pathname))) return { ok: false, reason: "static" };
+    } catch (error) {
+      return { ok: false, reason: "invalid" };
+    }
     if (isBlockedHost(url.hostname, normalized.blockedHosts)) return { ok: false, reason: "blocked-host" };
     if (normalized.blockSensitiveUrls && isSensitiveUrl(url)) return { ok: false, reason: "sensitive" };
 
@@ -340,7 +360,8 @@
   function isVisibleAnchor(anchor) {
     var rect = anchorRect(anchor);
     if (!rect) return false;
-    return rect.width >= 4 && rect.height >= 4 && rect.bottom >= 0 && rect.right >= 0;
+    return rect.width >= 4 && rect.height >= 4 && rect.bottom >= 0 && rect.right >= 0 &&
+      rect.top <= global.innerHeight && rect.left <= global.innerWidth;
   }
 
   function scoreAnchor(anchor, url, currentHref) {

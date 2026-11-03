@@ -85,6 +85,7 @@ function createHarness(initialSettings = {}, behavior = {}) {
     },
     globalThis: null,
     Promise,
+    URL,
     window: {
       setTimeout(callback, ms) {
         if (ms >= 1000) return 1;
@@ -101,9 +102,10 @@ function createHarness(initialSettings = {}, behavior = {}) {
   context.browser = {
     runtime: {
       sendMessage(message) {
-        if (message.type === context.FireLoadShared.MESSAGE.GET_SETTINGS) return Promise.resolve(settings);
+        if (message.type === context.FireLoadShared.MESSAGE.GET_SETTINGS) return behavior.get ? behavior.get(settings) : Promise.resolve(settings);
         if (message.type === context.FireLoadShared.MESSAGE.SAVE_SETTINGS) {
           metrics.savedPatches.push(message.patch);
+          if (behavior.save) return behavior.save(message, settings);
           if (behavior.invalidSaveResponse) return Promise.resolve(undefined);
           settings = context.FireLoadShared.mergeSettings(settings, message.patch || {});
           return Promise.resolve(settings);
@@ -116,6 +118,7 @@ function createHarness(initialSettings = {}, behavior = {}) {
   vm.runInContext(optionsSource, context, { filename: "options/options.js" });
 
   return {
+    context,
     elements,
     metrics,
     modeButtons,
@@ -201,4 +204,44 @@ function createHarness(initialSettings = {}, behavior = {}) {
   assert.equal(harness.elements.get("#saveState").textContent, "Not saved");
 }
 
-console.log("Options UI tests passed.");
+{
+  const harness = createHarness();
+  harness.start();
+  await settle();
+  harness.elements.get("#blockedHosts").value = "unsaved.example";
+  const crossSite = harness.elements.get("#allowCrossSiteDocumentPrefetch");
+  crossSite.checked = true;
+  crossSite.dispatch("change");
+  await settle();
+  assert.deepEqual(Object.keys(harness.metrics.savedPatches.at(-1)), ["allowCrossSiteDocumentPrefetch"]);
+  assert.equal(harness.elements.get("#blockedHosts").value, "unsaved.example", "checkbox save preserves host edits");
+  harness.elements.get("#saveButton").dispatch("click");
+  await settle();
+  assert.deepEqual(Object.keys(harness.metrics.savedPatches.at(-1)), ["blockedHosts"], "host save must not overwrite other settings");
+}
+
+{
+  const pending = [];
+  const harness = createHarness({}, { save: (message, settings) => new Promise((resolve) => pending.push({ message, settings, resolve })) });
+  harness.start();
+  await settle();
+  harness.modeButtons[0].dispatch("click");
+  harness.modeButtons[2].dispatch("click");
+  pending[1].resolve(harness.context.FireLoadShared.mergeSettings(pending[1].settings, pending[1].message.patch));
+  await settle();
+  pending[0].resolve(harness.context.FireLoadShared.mergeSettings(pending[0].settings, pending[0].message.patch));
+  await settle();
+  assert.equal(harness.modeButtons[2].getAttribute("aria-pressed"), "true", "stale save replies must not revert the selected mode");
+}
+
+{
+  const harness = createHarness({}, { get: () => Promise.reject(new Error("Background unavailable")) });
+  harness.start();
+  await settle();
+  assert.equal(harness.elements.get("#enabled").disabled, true);
+  assert.equal(harness.elements.get("#saveButton").disabled, true);
+  assert.ok(harness.modeButtons.every((button) => button.disabled));
+  assert.equal(harness.elements.get("#saveState").textContent, "Settings unavailable");
+}
+
+console.log("Options UI and unsaved-edit regression tests passed.");

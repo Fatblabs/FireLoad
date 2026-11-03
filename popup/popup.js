@@ -9,6 +9,7 @@
   var elements = {};
   var pollTimer = 0;
   var refreshInFlight = false;
+  var saveRevision = 0;
 
   function qs(selector) {
     return document.querySelector(selector);
@@ -32,13 +33,22 @@
     return api.runtime.sendMessage({ type: shared.MESSAGE.GET_SETTINGS }).then(normalizeSettingsResponse);
   }
 
+  function setControlsDisabled(disabled) {
+    elements.enabledToggle.disabled = disabled;
+    elements.liveStatsToggle.disabled = disabled;
+    document.querySelectorAll(".mode-button").forEach(function (button) { button.disabled = disabled; });
+  }
+
   function saveSettings(patch) {
+    var revision = ++saveRevision;
     return api.runtime.sendMessage({ type: shared.MESSAGE.SAVE_SETTINGS, patch: patch }).then(function (next) {
+      if (revision !== saveRevision) return;
       settings = normalizeSettingsResponse(next);
       renderSettings();
       setSaveState("Saved");
       syncPolling();
     }).catch(function () {
+      if (revision !== saveRevision) return;
       renderSettings();
       setSaveState("Not saved");
     });
@@ -102,8 +112,10 @@
     return api.tabs.query({ active: true, currentWindow: true }).then(function (tabs) {
       if (!tabs || !tabs[0] || tabs[0].id == null) return null;
       return api.tabs.sendMessage(tabs[0].id, { type: shared.MESSAGE.GET_PAGE_SUMMARY });
-    }).then(renderSummary).catch(function () {
-      renderSummary(null);
+    }).then(function (summary) {
+      if (settings.liveCacheTracking) renderSummary(summary);
+    }).catch(function () {
+      if (settings.liveCacheTracking) renderSummary(null);
     }).finally(function () {
       refreshInFlight = false;
     });
@@ -171,14 +183,18 @@
     elements.optionsButton = qs("#optionsButton");
     elements.saveState = qs("#saveState");
 
+    setControlsDisabled(true);
     bindEvents();
     getSettings().then(function (loaded) {
       settings = loaded;
+      setControlsDisabled(false);
       renderSettings();
       syncPolling();
     }).catch(function () {
       renderSettings();
       renderTrackingOff();
+      elements.statusText.textContent = "Settings unavailable";
+      setSaveState("Not loaded");
     });
   }
 

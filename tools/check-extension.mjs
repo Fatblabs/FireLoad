@@ -2,10 +2,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import { spawnSync } from "node:child_process";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const manifestPath = path.join(root, "manifest.json");
 const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+if (packageJson.version !== manifest.version) throw new Error("Manifest and package versions must match.");
 
 const required = new Set(["manifest.json"]);
 
@@ -56,6 +59,12 @@ for (const script of scripts) {
   new vm.Script(source, { filename: script });
 }
 
+for (const file of fs.readdirSync(path.join(root, "tools"))) {
+  if (!file.endsWith(".mjs") && !file.endsWith(".cjs")) continue;
+  const result = spawnSync(process.execPath, ["--check", path.join(root, "tools", file)], { encoding: "utf8" });
+  if (result.status !== 0) throw new Error(result.stderr || `Syntax error in tools/${file}`);
+}
+
 if (manifest.manifest_version !== 3) {
   throw new Error("FireLoad currently targets Firefox Manifest V3.");
 }
@@ -68,8 +77,8 @@ if (manifest.homepage_url?.includes("/local/")) {
   throw new Error("homepage_url must not use a local placeholder value.");
 }
 
-if (manifest.browser_specific_settings?.gecko?.id?.includes("local.dev")) {
-  throw new Error("Gecko id must not use a local dev placeholder.");
+if (manifest.browser_specific_settings?.gecko?.id !== "fireload@local.dev") {
+  throw new Error("Gecko id must match the existing AMO listing id: fireload@local.dev.");
 }
 
 const hostPermissions = manifest.host_permissions || [];

@@ -91,6 +91,7 @@ function createHarness(initialSettings = {}, behavior = {}) {
     },
     globalThis: null,
     Promise,
+    URL,
     setInterval: () => 0,
     setTimeout: () => 0,
     window: {
@@ -119,9 +120,10 @@ function createHarness(initialSettings = {}, behavior = {}) {
     runtime: {
       openOptionsPage() {},
       sendMessage(message) {
-        if (message.type === context.FireLoadShared.MESSAGE.GET_SETTINGS) return Promise.resolve(settings);
+        if (message.type === context.FireLoadShared.MESSAGE.GET_SETTINGS) return behavior.get ? behavior.get(settings) : Promise.resolve(settings);
         if (message.type === context.FireLoadShared.MESSAGE.SAVE_SETTINGS) {
           metrics.savedPatches.push(message.patch);
+          if (behavior.save) return behavior.save(message, settings);
           if (behavior.invalidSaveResponse) return Promise.resolve(undefined);
           settings = context.FireLoadShared.mergeSettings(settings, message.patch || {});
           return Promise.resolve(settings);
@@ -137,6 +139,7 @@ function createHarness(initialSettings = {}, behavior = {}) {
       sendMessage(_tabId, message) {
         metrics.tabMessages += 1;
         assert.equal(message.type, context.FireLoadShared.MESSAGE.GET_PAGE_SUMMARY);
+        if (behavior.summary) return behavior.summary();
         return Promise.resolve({
           tracking: true,
           status: "active",
@@ -159,6 +162,7 @@ function createHarness(initialSettings = {}, behavior = {}) {
     context,
     elements,
     metrics,
+    modeButtons,
     start() {
       domListeners.DOMContentLoaded();
     }
@@ -222,4 +226,43 @@ function createHarness(initialSettings = {}, behavior = {}) {
   assert.equal(harness.elements.get("#saveState").textContent, "Not saved");
 }
 
-console.log("Popup live tracking tests passed.");
+{
+  const pending = [];
+  const harness = createHarness({}, { save: (message, settings) => new Promise((resolve) => pending.push({ message, settings, resolve })) });
+  harness.start();
+  await settle();
+  harness.modeButtons[0].dispatch("click");
+  harness.modeButtons[2].dispatch("click");
+  pending[1].resolve(harness.context.FireLoadShared.mergeSettings(pending[1].settings, pending[1].message.patch));
+  await settle();
+  pending[0].resolve(harness.context.FireLoadShared.mergeSettings(pending[0].settings, pending[0].message.patch));
+  await settle();
+  assert.equal(harness.modeButtons[2].getAttribute("aria-pressed"), "true");
+}
+
+{
+  let resolveSummary;
+  const harness = createHarness({ liveCacheTracking: true }, { summary: () => new Promise((resolve) => { resolveSummary = resolve; }) });
+  harness.start();
+  await settle();
+  const toggle = harness.elements.get("#liveStatsToggle");
+  toggle.checked = false;
+  toggle.dispatch("change");
+  await settle();
+  resolveSummary({ tracking: true, status: "active", prefetched: 42 });
+  await settle();
+  assert.equal(harness.elements.get("#pageStatus").textContent, "Live off", "late stats must not overwrite tracking-off display");
+  assert.equal(harness.elements.get("#prefetchedCount").textContent, "0");
+}
+
+{
+  const harness = createHarness({}, { get: () => Promise.reject(new Error("Background unavailable")) });
+  harness.start();
+  await settle();
+  assert.equal(harness.elements.get("#enabledToggle").disabled, true);
+  assert.ok(harness.modeButtons.every((button) => button.disabled));
+  assert.equal(harness.metrics.tabQueries, 0);
+  assert.equal(harness.elements.get("#statusText").textContent, "Settings unavailable");
+}
+
+console.log("Popup live tracking and async response regression tests passed.");

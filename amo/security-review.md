@@ -28,6 +28,8 @@ Background settings messages are accepted only from FireLoad's own popup and opt
 
 Settings are normalized through explicit allow-listed fields. FireLoad does not merge arbitrary message payloads into settings objects.
 
+Mode names must be own properties of the mode configuration, so inherited names such as `constructor` are rejected. Settings writes are serialized to prevent concurrent changes from overwriting each other. Content scripts wait for saved settings before starting work and stay inactive if the initial settings read fails.
+
 ## Prefetch Safety
 
 FireLoad skips:
@@ -43,3 +45,7 @@ FireLoad skips:
 - User-configured blocked hosts.
 
 Cross-site document prefetching is disabled by default and requires an explicit option.
+
+Sensitive URL checks decode percent-encoded paths. Host blocking normalizes international hostnames, ports, and trailing dots. These remain heuristics, not a malware scanner or a guarantee that a URL has no side effects.
+
+Pending queues, observers, and intent timers are cleared on activity-affecting settings changes and when the page is hidden or leaves the active lifecycle. Started browser requests may still complete. Total document budgets account for queued work, and mutation handling ignores FireLoad's own hints and text-only changes to avoid repeated scans.

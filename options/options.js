@@ -7,6 +7,7 @@
 
   var settings = shared.normalizeSettings();
   var fields = {};
+  var saveRevision = 0;
 
   function qs(selector) {
     return document.querySelector(selector);
@@ -21,12 +22,23 @@
     return api.runtime.sendMessage({ type: shared.MESSAGE.GET_SETTINGS }).then(normalizeSettingsResponse);
   }
 
+  function setControlsDisabled(disabled) {
+    Object.keys(fields).forEach(function (key) {
+      if (key !== "saveState") fields[key].disabled = disabled;
+    });
+    document.querySelectorAll(".mode-row button").forEach(function (button) { button.disabled = disabled; });
+  }
+
   function saveSettings(patch) {
+    var revision = ++saveRevision;
+    var hostsAtSave = fields.blockedHosts.value;
     return api.runtime.sendMessage({ type: shared.MESSAGE.SAVE_SETTINGS, patch: patch }).then(function (next) {
+      if (revision !== saveRevision) return;
       settings = normalizeSettingsResponse(next);
-      render();
+      render(Boolean(patch.blockedHosts) && fields.blockedHosts.value === hostsAtSave);
       showSaved("Saved");
     }).catch(function () {
+      if (revision !== saveRevision) return;
       render();
       showSaved("Not saved");
     });
@@ -39,34 +51,14 @@
     }, 1600);
   }
 
-  function selectedMode() {
-    var active = qs(".mode-row button[aria-pressed='true']");
-    return active ? active.dataset.mode : settings.mode;
-  }
-
-  function collect() {
-    return {
-      enabled: fields.enabled.checked,
-      mode: selectedMode(),
-      liveCacheTracking: fields.liveCacheTracking.checked,
-      allowCrossSiteDocumentPrefetch: fields.allowCrossSiteDocumentPrefetch.checked,
-      respectSaveData: fields.respectSaveData.checked,
-      respectNoPrefetch: fields.respectNoPrefetch.checked,
-      blockSensitiveUrls: fields.blockSensitiveUrls.checked,
-      blockedHosts: fields.blockedHosts.value.split(/\n+/).map(function (line) {
-        return line.trim();
-      }).filter(Boolean)
-    };
-  }
-
-  function render() {
+  function render(updateHosts) {
     fields.enabled.checked = settings.enabled;
     fields.liveCacheTracking.checked = settings.liveCacheTracking;
     fields.allowCrossSiteDocumentPrefetch.checked = settings.allowCrossSiteDocumentPrefetch;
     fields.respectSaveData.checked = settings.respectSaveData;
     fields.respectNoPrefetch.checked = settings.respectNoPrefetch;
     fields.blockSensitiveUrls.checked = settings.blockSensitiveUrls;
-    fields.blockedHosts.value = settings.blockedHosts.join("\n");
+    if (updateHosts) fields.blockedHosts.value = settings.blockedHosts.join("\n");
     document.querySelectorAll(".mode-row button").forEach(function (button) {
       button.setAttribute("aria-pressed", String(button.dataset.mode === settings.mode));
     });
@@ -85,12 +77,16 @@
 
     [fields.enabled, fields.liveCacheTracking, fields.allowCrossSiteDocumentPrefetch, fields.respectSaveData, fields.respectNoPrefetch, fields.blockSensitiveUrls].forEach(function (field) {
       field.addEventListener("change", function () {
-        saveSettings(collect());
+        var patch = {};
+        patch[field.id] = field.checked;
+        saveSettings(patch);
       });
     });
 
     fields.saveButton.addEventListener("click", function () {
-      saveSettings(collect());
+      saveSettings({ blockedHosts: fields.blockedHosts.value.split(/\n+/).map(function (line) {
+        return line.trim();
+      }).filter(Boolean) });
     });
   }
 
@@ -105,13 +101,15 @@
     fields.saveButton = qs("#saveButton");
     fields.saveState = qs("#saveState");
 
+    setControlsDisabled(true);
     bind();
     getSettings().then(function (loaded) {
       settings = loaded;
-      render();
+      setControlsDisabled(false);
+      render(true);
     }).catch(function () {
       render();
-      showSaved("Using defaults");
+      showSaved("Settings unavailable");
     });
   }
 

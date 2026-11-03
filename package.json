@@ -1,13 +1,14 @@
 {
   "name": "fireload-extension",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "node tools/build-addon.mjs",
     "check": "node tools/check-extension.mjs",
-    "source:zip": "mkdir -p dist && rm -f dist/fireload-source.zip && zip -X -r dist/fireload-source.zip manifest.json src popup options onboarding icons amo README.md package.json tools .github -x '*.DS_Store' -x 'dist/*'",
-    "test": "node tools/test-shared.mjs && node tools/test-background.mjs && node tools/test-content.mjs && node tools/test-popup.mjs && node tools/test-options.mjs",
+    "source:zip": "node tools/build-addon.mjs --source",
+    "test": "node tools/test-shared.mjs && node tools/test-background.mjs && node tools/test-content.mjs && node tools/test-popup.mjs && node tools/test-options.mjs && node tools/test-build.mjs",
+    "test:firefox": "node tools/test-firefox-prefetch.cjs",
     "zip": "npm run build"
   }
 }

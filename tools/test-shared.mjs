@@ -9,6 +9,8 @@ const source = fs.readFileSync(path.join(root, "src/shared.js"), "utf8");
 const context = vm.createContext({
   console,
   navigator: {},
+  innerHeight: 800,
+  innerWidth: 1200,
   URL
 });
 
@@ -36,12 +38,18 @@ function anchor(href, attrs = {}) {
 }
 
 assert.equal(shared.normalizeSettings({ mode: "unknown" }).mode, "balanced");
+for (const mode of ["constructor", "toString", "__proto__", ["blazing"]]) {
+  assert.equal(shared.normalizeSettings({ mode }).mode, "balanced");
+  assert.equal(shared.modeConfig(mode).label, "Balanced");
+  assert.equal(shared.mergeSettings({ mode: "efficiency" }, { mode }).mode, "efficiency");
+}
 assert.equal(shared.normalizeSettings({ enabled: false }).enabled, false);
 assert.equal(shared.normalizeSettings({}).liveCacheTracking, false);
 assert.equal(shared.normalizeSettings({ liveCacheTracking: true }).liveCacheTracking, true);
 assert.equal(shared.normalizeSettings({}).allowCrossSiteDocumentPrefetch, false);
 assert.equal(shared.normalizeSettings({ allowCrossSiteDocumentPrefetch: true }).allowCrossSiteDocumentPrefetch, true);
 assert.equal(shared.normalizeSettings({ blockedHosts: [" HTTPS://Example.COM/path "] }).blockedHosts[0], "example.com");
+assert.deepEqual(Array.from(shared.normalizeSettings({ blockedHosts: ["example.com:8443", "münich.example", null, {}, "https://user:pass@host.test"] }).blockedHosts), ["example.com", "xn--mnich-kva.example"]);
 
 const normal = shared.classifyUrl("/products/screws/", base, {});
 assert.equal(normal.ok, true);
@@ -66,14 +74,21 @@ assert.equal(merged.blockedHosts[0], "*.internal.test");
 assert.equal({}.polluted, undefined);
 
 assert.equal(shared.classifyUrl("/files/manual.pdf", base, {}).reason, "static");
+assert.equal(shared.classifyUrl("/files/manual.%70df", base, {}).reason, "static");
 assert.equal(shared.classifyUrl("javascript:alert(1)", base, {}).reason, "invalid");
 assert.equal(shared.classifyUrl("/checkout/cart", base, {}).reason, "sensitive");
+assert.equal(shared.classifyUrl("/%6cogout", base, {}).reason, "sensitive");
+assert.equal(shared.classifyUrl("/next?access%5ftoken=abc", base, {}).reason, "sensitive");
+assert.equal(shared.classifyUrl("https://cdn.example./page", base, { blockedHosts: ["cdn.example"] }).reason, "blocked-host");
 assert.equal(shared.classifyUrl("http://shop.example/insecure", base, {}).reason, "downgrade");
 assert.equal(shared.classifyPage("https://shop.example/checkout/payment", {}).reason, "sensitive page");
 assert.equal(shared.classifyPage("https://internal.example/", { blockedHosts: ["internal.example"] }).reason, "blocked host");
 assert.equal(shared.classifyUrl("https://cdn.example/page", base, { blockedHosts: ["*.example"] }).reason, "blocked-host");
 assert.equal(shared.classifyAnchor(anchor("/download", { download: "" }), base, {}).reason, "download");
 assert.equal(shared.classifyAnchor(anchor("/sponsored", { rel: "nofollow" }), base, {}).reason, "rel");
+assert.equal(shared.isVisibleAnchor(anchor("/visible")), true);
+assert.equal(shared.isVisibleAnchor(anchor("/below", { rect: { top: 2000, left: 0, right: 100, bottom: 2030, width: 100, height: 30 } })), false);
+assert.equal(shared.isVisibleAnchor(anchor("/right", { rect: { top: 0, left: 1500, right: 1600, bottom: 30, width: 100, height: 30 } })), false);
 
 const nextScore = shared.scoreAnchor(anchor("/products/widgets/2", { rel: "next", text: "Next" }), new URL("/products/widgets/2", base), base);
 assert.ok(nextScore >= 90, `expected a high next-link score, got ${nextScore}`);

@@ -18,6 +18,8 @@ FireLoad borrows the practical parts of very fast catalog sites:
 - Prefetch likely HTML documents with `<link rel="prefetch" as="document">`.
 - Warm links before native new-tab and new-window flows by reacting to right-click context menus, middle-clicks, modifier clicks, and keyboard activation.
 - Use bounded queues so aggressive mode is fast without becoming unbounded.
+- Enforce per-page limits, including queued documents: 4 in Efficiency, 12 in Balanced, and 36 in Blazing Fast.
+- Cancel pending intent timers and discard stale work when settings change, a page is hidden, or it leaves the active document lifecycle. Browser requests already started cannot always be cancelled.
 - Keep live popup activity tracking off by default; the popup does not poll tabs unless Live stats is enabled.
 - Skip downloads, static assets, same-document links, sensitive paths, and blocked hosts.
 - Skip prefetching from sensitive current pages and avoid HTTPS-to-HTTP downgrade prefetches.
@@ -60,13 +62,14 @@ These instructions reproduce the submitted add-on package from source.
   - Node.js `22.16.0` or newer. The add-on was tested with Node.js `22.16.0`; Mozilla's default Node.js `24.14.0` is expected to work.
   - npm `10.9.2` or newer. The add-on was tested with npm `10.9.2`; Mozilla's default npm `11.9.0` is expected to work.
   - Info-ZIP `zip` `3.0` or compatible.
+  - Info-ZIP `unzip` `6.0` or compatible for package verification tests.
 - No `npm install` is required to build the extension package. The packaged extension has no bundled third-party dependencies and no remote code dependencies.
 
 On Ubuntu, if `zip` is not installed:
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y zip
+sudo apt-get install -y zip unzip
 ```
 
 ### Build Steps
@@ -84,6 +87,10 @@ The build script is [tools/build-addon.mjs](tools/build-addon.mjs). It creates:
 ```text
 dist/fireload.xpi
 ```
+
+Builds normalize archive ordering, timestamps, and file permissions. `npm test` checks that repeated builds match byte for byte and that the source archive reproduces the exact XPI. No code is transformed or bundled.
+
+The AMO listing's permanent extension ID is `fireload@local.dev`. Keep this ID for updates to the existing listing.
 
 The submitted `.xpi` is built from these source paths only:
 
@@ -124,15 +131,19 @@ dist/fireload-source.zip
 
 ## Real Browser Prefetch Test
 
-The integration runner in `tools/test-firefox-prefetch.cjs` launches Firefox, installs the packaged extension, starts local HTTP servers, hovers a same-site link, verifies that the server receives a `sec-purpose: prefetch` request before navigation, verifies sensitive URLs are skipped, and verifies cross-site document prefetching is blocked by default.
+The integration runner in `tools/test-firefox-prefetch.cjs` launches isolated headless Firefox, installs the packaged extension, and starts local HTTP servers. It checks hover and context-menu prefetch requests, sensitive URL skipping, default cross-origin blocking, explicit cross-origin opt-in, and reuse of fresh prefetched responses during navigation and in new tabs/windows. Firefox decides whether a speculative hint is honored; this local fixture uses cacheable responses.
 
-It expects Selenium and geckodriver to be available to Node. One clean way to run it without adding dependencies to this repo:
+It requires Firefox and geckodriver on the system, plus Selenium available to Node. Install geckodriver using [Mozilla's installation instructions](https://firefox-source-docs.mozilla.org/testing/geckodriver/Support.html). Firefox defaults to `/Applications/Firefox.app/Contents/MacOS/firefox` on macOS and `/usr/bin/firefox` on Linux. Set `FIREFOX_BINARY` or `GECKODRIVER` to override those executable paths. One way to install only the test dependency without adding it to this repo:
 
 ```sh
 TMP_AUTOMATION_DIR=$(mktemp -d /tmp/fireload-automation.XXXXXX)
-npm install --prefix "$TMP_AUTOMATION_DIR" selenium-webdriver@4.44.0 geckodriver@6.1.0
-NODE_PATH="$TMP_AUTOMATION_DIR/node_modules" node tools/test-firefox-prefetch.cjs
+npm install --prefix "$TMP_AUTOMATION_DIR" --ignore-scripts selenium-webdriver@4.44.0
+NODE_PATH="$TMP_AUTOMATION_DIR/node_modules" npm run test:firefox
 ```
+
+The release workflow also runs this integration suite on Linux. Browser startup needs working local sockets and permission for Firefox's helper processes. Driver diagnostics are written to a temporary log whose path is printed at startup.
+
+Blocked-host entries accept hostnames or pasted HTTP(S) URLs. `example.com` blocks that host, `*.example.com` blocks its subdomains, and `.example.com` blocks both. Port numbers and trailing dots are normalized; international hostnames use their ASCII representation.
 
 ## Safety Notes
 
@@ -143,5 +154,7 @@ Firefox and sites may ignore, throttle, or block speculative hints. FireLoad imp
 FireLoad does not collect analytics, send telemetry, or transmit data to a FireLoad service. It stores extension settings locally in Firefox. Its core function can still cause Firefox to make early requests to linked websites through browser-native prefetching.
 
 The toolbar popup's live activity counters are local and optional. They are disabled by default, and enabling them only makes the popup poll the active tab while the popup is open.
+
+The Requested counter counts document prefetch hints issued by FireLoad. It does not confirm that Firefox downloaded or cached each document.
 
 AMO-facing privacy, permissions, security review, reviewer notes, and listing copy are in [amo/](amo/).
